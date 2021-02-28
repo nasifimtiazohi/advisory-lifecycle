@@ -45,10 +45,6 @@ class snykidsSpider(scrapy.Spider):
             vuln_url = self.base_url + vuln_partial_url
             yield scrapy.Request(vuln_url, callback=self.parse_vuln, meta={'item': advisory})
 
-            #yield advisory #why does this not work here
-        
-        return
-
         if  len(response.xpath(".//a[@class='pagination__next']/@href")) > 0: 
             next_page_url = self.base_url + response.xpath(".//a[@class='pagination__next']/@href").extract_first()
             yield scrapy.Request(next_page_url,callback=self.parse)
@@ -67,21 +63,32 @@ class snykidsSpider(scrapy.Spider):
         advisory['score'] = extractIfPresentElseNone(response, ".//div[contains(@class,'cvss-breakdown__score')]/text()")
         advisory['vector'] = extractIfPresentElseNone(response, ".//div[contains(@class,'cvss-breakdown__vector')]/text()")
 
-        #TODO select the specifc card content
-        headers = response.xpath(".//div[@class='card__content']/dl/dt")
-        values = response.xpath(".//div[@class='card__content']/dl/dd")
+        cards = response.xpath(".//div[@class='card__content']")
+        assert len(cards) == 4 
+
+        #get credt, cves, publish date etc. from the last card
+        headers = cards[3].xpath(".//dl/dt") #headers will be distinct 
+        values = cards[3].xpath(".//dl/dd")
         assert len(headers) == len(values)
         details = {}
         for i in range(0,len(headers)):
-            details[self.joinText(headers[i].xpath('.//text()').extract())] = self.joinText(values[i].xpath('.//text()').extract())
+            key = self.joinText(headers[i].xpath('.//text()').extract())
+            value = self.joinText(values[i].xpath('.//text()').extract())
+            assert key not in details
+            details[key]=value
         advisory['details'] = details
-
-        #TODO wrong logic
-        references = response.xpath(".//div[@class='card__content']/ul")[0].xpath(".//li")
-        r = {}
+ 
+        #get references from the textual description card
+        references = cards[1].xpath(".//h2[@id='references']/following-sibling::ul").xpath(".//li")
+        d = {}
         for e in references:
-            r[self.joinText(e.xpath(".//text()").extract())] = self.joinText(e.xpath(".//a/@href").extract())
-        advisory['references'] = r
+            key = self.joinText(e.xpath(".//text()").extract())
+            value = self.joinText(e.xpath(".//a/@href").extract())
+            if key not in d:
+                d[key]=[value]
+            else:
+                d[key].append(value)
+        advisory['references'] = d
         
         yield advisory
 
