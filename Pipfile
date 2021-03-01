@@ -5,6 +5,9 @@ name = "pypi"
 
 [packages]
 scrapy = "*"
+pymysql = "*"
+numpy = "*"
+pandas = "*"
 
 [dev-packages]
 
