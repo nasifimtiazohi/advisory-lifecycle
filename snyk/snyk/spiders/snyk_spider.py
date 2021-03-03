@@ -1,5 +1,6 @@
 import scrapy
 import logging
+import unicodedata
 
 class Advisory(scrapy.Item):
     vulId = scrapy.Field()
@@ -12,9 +13,10 @@ class Advisory(scrapy.Item):
     vector = scrapy.Field()
     details = scrapy.Field()
     references = scrapy.Field()
+    affected_versions = scrapy.Field()
 
 class snykidsSpider(scrapy.Spider):
-    name = 'snykids'
+    name = 'snyk'
     start_urls = [
         'https://snyk.io/vuln'
         ]
@@ -60,6 +62,11 @@ class snykidsSpider(scrapy.Spider):
                 return None
 
         advisory = response.meta['item']
+
+        title = response.xpath(".//p[@class='header__lede']/strong/text()")
+        assert len(title) == 2
+        advisory['affected_versions'] = unicodedata.normalize("NFKD", title[1].extract().strip())
+
         advisory['score'] = extractIfPresentElseNone(response, ".//div[contains(@class,'cvss-breakdown__score')]/text()")
         advisory['vector'] = extractIfPresentElseNone(response, ".//div[contains(@class,'cvss-breakdown__vector')]/text()")
 
