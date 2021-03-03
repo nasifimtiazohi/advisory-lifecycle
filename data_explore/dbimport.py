@@ -52,43 +52,63 @@ def addReferences(advisory):
 
     for k in advisory['references'].keys():
         for url in advisory['references'][k]:
-            sql.execute(insertQ,(advisoryId,k,url))
-
-def addAdvisories():
-    with open("../snyk/data/snykFeb28.json","r") as read_file:
+            try:
+                sql.execute(insertQ,(advisoryId,k,url))
+            except sql.pymysql.IntegrityError as error:
+                if error.args[0] == sql.PYMYSQL_DUPLICATE_ERROR:
+                    pass
+                    #safely continue
+                else:
+                    print(error)
+                    exit()
+def addAdvisories(datafile):
+    with open("../snyk/data/{}".format(datafile),"r") as read_file:
         advisories = json.load(read_file)
 
     for i,advisory in enumerate(advisories):
         logging.info('processing %dth data',i)
         try:
-            insertQ = 'insert into advisory values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)'
-            sql.execute(insertQ, (
-                advisory['vulId'],
-                advisory['vulType'],
-                getPackageId(advisory['package'],advisory['ecosystem']),
-                advisory['versions'],
-                advisory['severity'],
-                advisory['score'],
-                advisory['vector'],
-                advisory['details'].get('Credit',None),
-                dt.parse(advisory['details']['Disclosed']),
-                dt.parse(advisory['details']['Published'])
-            ))    
+            selectQ = 'select * from advisory where id = %s'
+            if not sql.execute(selectQ,(advisory['vulId'],)):
+                insertQ = 'insert into advisory values (%s,%s,%s,%s,%s,%s,%s,%s,%s)'
+                sql.execute(insertQ, (
+                    advisory['vulId'],
+                    advisory['vulType'],
+                    getPackageId(advisory['package'],advisory['ecosystem']),
+                    advisory['severity'],
+                    advisory['score'],
+                    advisory['vector'],
+                    advisory['details'].get('Credit',None),
+                    dt.parse(advisory['details']['Disclosed']),
+                    dt.parse(advisory['details']['Published'])
+                ))    
 
             if 'CVE' in advisory['details']:
                 cve = advisory['details']['CVE']
                 cves = cve.split('\n\n')
                 for cve in cves:
-                    q = 'insert into advisoryCVE values (%s,%s,null,null)'
-                    sql.execute(q,(advisory['vulId'],cve))
+                    selectQ = 'select * from advisoryCVE where advisory_id = %s and cve = %s'
+                    if not sql.execute(selectQ,(advisory['vulId'],cve)):
+                        q = 'insert into advisoryCVE values (%s,%s,null,null)'
+                        sql.execute(q,(advisory['vulId'],cve))
             
             if 'CWE' in advisory['details']:
                 cwe = advisory['details']['CWE']
                 cwes = cwe.split('\n\n')
                 for cwe in cwes:
-                    q = 'insert into advisoryCWE values (%s,%s)'
-                    sql.execute(q,(advisory['vulId'],cwe))
-            
+                    selectQ = 'select * from advisoryCWE where advisory_id = %s and cwe = %s'
+                    if not sql.execute(selectQ,(advisory['vulId'],cwe)):
+                        q = 'insert into advisoryCWE values (%s,%s)'
+                        sql.execute(q,(advisory['vulId'],cwe))
+
+            selectQ = 'select * from advisory_versions where advisory_id = %s'
+            if not sql.execute(selectQ,(advisory['vulId'],)):
+                q = 'insert into advisory_versions values (%s,%s)'
+                sql.execute(q,(advisory['vulId'],advisory['affected_versions']))
+            else:
+                q='update adviosry_versions set versions = %s where advisory_id = %s'
+                sql.execute(q,(advisory['affected_versions'],advisory['vulId']))
+
             addReferences(advisory)
 
         except Exception as e:
@@ -98,5 +118,5 @@ def addAdvisories():
 
 if __name__=='__main__':
     
-    #addAdvisories()
+    addAdvisories('snykMar2.json')
     add_cve_publish_date()
