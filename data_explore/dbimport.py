@@ -2,6 +2,7 @@ import json
 import sql
 import requests
 import time
+import re
 from dateutil import parser as dt
 import logging, coloredlogs 
 coloredlogs.install()
@@ -61,12 +62,41 @@ def addReferences(advisory):
                 else:
                     print(error)
                     exit()
+
+def addVersions(advisory):
+    # there is a reading problem in versions from the vulnerability page; 
+    # fixing with naive logic that if there is no space after comma from the list page (versions),
+    # it means || in details page (affected versions)
+    if advisory['affected_versions'].replace(' || ',',') != advisory['versions'] and not advisory['affected_versions']=='ALL':
+        pattern = r',\S'
+        string = advisory['versions']
+        indices = [-1] + [x.start() for x in re.finditer(pattern, string)] + [len(string)]
+        
+        s=''
+        for i in range(1, len(indices)):
+            s += string[indices[i-1]+1:indices[i]]
+            if i != len(indices) - 1:
+                s += ' || '
+
+        logging.info("version string issue with %s and %s and %s and %s",advisory['vulId'],advisory['versions'],advisory['affected_versions'],s)
+        advisory['affected_versions'] = s
+
+        
+
+    selectQ = 'select * from advisory_versions where advisory_id = %s'
+    if not sql.execute(selectQ,(advisory['vulId'],)):
+        q = 'insert into advisory_versions values (%s,%s)'
+        sql.execute(q,(advisory['vulId'],advisory['affected_versions']))
+    else:
+        q='update advisory_versions set versions = %s where advisory_id = %s'
+        sql.execute(q,(advisory['affected_versions'],advisory['vulId']))
+
 def addAdvisories(datafile):
     with open("../snyk/data/{}".format(datafile),"r") as read_file:
         advisories = json.load(read_file)
 
     for i,advisory in enumerate(advisories):
-        logging.info('processing %dth data',i)
+        #logging.info('processing %dth data',i)
         try:
             selectQ = 'select * from advisory where id = %s'
             if not sql.execute(selectQ,(advisory['vulId'],)):
@@ -101,14 +131,7 @@ def addAdvisories(datafile):
                         q = 'insert into advisoryCWE values (%s,%s)'
                         sql.execute(q,(advisory['vulId'],cwe))
 
-            selectQ = 'select * from advisory_versions where advisory_id = %s'
-            if not sql.execute(selectQ,(advisory['vulId'],)):
-                q = 'insert into advisory_versions values (%s,%s)'
-                sql.execute(q,(advisory['vulId'],advisory['affected_versions']))
-            else:
-                q='update adviosry_versions set versions = %s where advisory_id = %s'
-                sql.execute(q,(advisory['affected_versions'],advisory['vulId']))
-
+            addVersions(advisory)
             addReferences(advisory)
 
         except Exception as e:
@@ -116,7 +139,37 @@ def addAdvisories(datafile):
             print('Exception:', e)
             break
 
+def parse_fixing_releases():
+    #MAJOR BUG: SNYK-RUBY-SPREE-20033
+    q='''select *
+            from advisory_versions v
+            join advisory a on v.advisory_id = a.id
+            where type != 'Malicious Package';'''
+    advisories = sql.execute(q)
+    print(len(advisories))
+
+    c=0
+    for advisory in advisories:
+        if advisory['versions'] == 'ALL':
+            c+=1
+            continue
+
+        ranges = advisory['versions'].split('||')
+        for i,r in enumerate(ranges):
+            ranges[i] = r.strip()
+        
+        if len(ranges) == 1 and ',' not in ranges[0] and ' ' not in ranges[0] and ranges[0].startswith('>'):
+            c+=1
+        
+    print(c)
+
+
+
+
+
+
 if __name__=='__main__':
     
     addAdvisories('snykMar2.json')
-    add_cve_publish_date()
+    # add_cve_publish_date()
+    # parse_fixing_releases()

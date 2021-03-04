@@ -66,6 +66,10 @@ class snykidsSpider(scrapy.Spider):
         title = response.xpath(".//p[@class='header__lede']/strong/text()")
         assert len(title) == 2
         advisory['affected_versions'] = unicodedata.normalize("NFKD", title[1].extract().strip())
+        # if advisory['affected_versions'].replace(' || ',',') != advisory['versions']:
+        #     logging.info("version string issue with %s,%s,%s",advisory['vulId'],advisory['versions'],advisory['affected_versions'])
+        #     #TODO: some logic
+        #     #in some cases, version reading is incorrect. E.g., SNYK-RUBY-SPREE-20034
 
         advisory['score'] = extractIfPresentElseNone(response, ".//div[contains(@class,'cvss-breakdown__score')]/text()")
         advisory['vector'] = extractIfPresentElseNone(response, ".//div[contains(@class,'cvss-breakdown__vector')]/text()")
