@@ -70,6 +70,8 @@ class snykidsSpider(scrapy.Spider):
         #     logging.info("version string issue with %s,%s,%s",advisory['vulId'],advisory['versions'],advisory['affected_versions'])
         #     #TODO: some logic
         #     #in some cases, version reading is incorrect. E.g., SNYK-RUBY-SPREE-20034
+        #     problem occurs with <, > sign together with html codes like nbsp;
+        
 
         advisory['score'] = extractIfPresentElseNone(response, ".//div[contains(@class,'cvss-breakdown__score')]/text()")
         advisory['vector'] = extractIfPresentElseNone(response, ".//div[contains(@class,'cvss-breakdown__vector')]/text()")

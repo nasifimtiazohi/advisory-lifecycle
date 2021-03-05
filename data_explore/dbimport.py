@@ -4,6 +4,7 @@ import requests
 import time
 import re
 from dateutil import parser as dt
+import datetime
 import logging, coloredlogs 
 coloredlogs.install()
 
@@ -29,7 +30,7 @@ def add_cve_publish_date():
         logging.info('fetching cve started: %s', cve)
         url='https://cve.circl.lu/api/cve/'+cve 
         response=requests.get(url)
-
+       
         while response.status_code != 200 :
             logging.warning('failed cve response: %s', response.content)
             response=requests.get(url)
@@ -140,28 +141,78 @@ def addAdvisories(datafile):
             break
 
 def parse_fixing_releases():
-    #MAJOR BUG: SNYK-RUBY-SPREE-20033
     q='''select *
-            from advisory_versions v
-            join advisory a on v.advisory_id = a.id
-            where type != 'Malicious Package';'''
+        from advisory_versions v
+        join advisory a on v.advisory_id = a.id
+        where type != 'Malicious Package';'''
     advisories = sql.execute(q)
-    print(len(advisories))
 
-    c=0
+    def no_range_characters(s):
+        range_chars = ['(',')','[',']']
+        for c in s:
+            if c in range_chars:
+                return False
+        return True
+
     for advisory in advisories:
-        if advisory['versions'] == 'ALL':
-            c+=1
+        if advisory['versions'] == 'ALL' or advisory['versions'] == '*':
             continue
 
         ranges = advisory['versions'].split('||')
-        for i,r in enumerate(ranges):
-            ranges[i] = r.strip()
+        fixes = {}
+    
+        for r in ranges:
+            r =  r.replace(' ','') #spaces may follow nothing particular format
+            
+            if '<=' in r:
+                assert r.count('<') == 1
+                assert no_range_characters(r)
+                fixes[r] = 'manual checkup needed'
+            elif '<' in r:
+                assert r.count('<') == 1
+                assert no_range_characters(r)
+                
+                nonversion_chars = [',','<','>','=','|','&'] #will not have ()[]
+                idx = r.find('<')
+                start = i = idx+1
+                while i<len(r):
+                    if r[i] in nonversion_chars:
+                        break
+                    i+=1
+                end = i
+                fixes[r] = r[start:end]
+            elif '>' in r:
+                # only > or >= in r
+                assert no_range_characters(r)
+                continue
+            elif r.endswith(',]') or r.endswith(',)'):
+                assert r.count(',') == 1
+                continue
+            elif r.endswith(')'):
+                assert r.count(',') == 1
+                fix = r.split(',')[1]
+                fix = fix[:-1]
+                assert fix
+                fixes[r] = fix
+            elif r.startswith('='):
+                fixes[r] = 'manual checkup needed'
+            else:
+                fixes[r] = 'manual checkup needed'
+
+            
         
-        if len(ranges) == 1 and ',' not in ranges[0] and ' ' not in ranges[0] and ranges[0].startswith('>'):
-            c+=1
-        
-    print(c)
+        for k in fixes.keys():
+            fix = fixes[k]
+            q =  'insert into fixing_releases values (%s,%s,%s)'
+            try:
+                sql.execute(q,(advisory['id'],fix,k))
+            except sql.pymysql.IntegrityError as error:
+                if error.args[0] == sql.PYMYSQL_DUPLICATE_ERROR:
+                    pass
+                    #safely continue
+                else:
+                    print(error)
+                    exit()
 
 
 
@@ -170,6 +221,6 @@ def parse_fixing_releases():
 
 if __name__=='__main__':
     
-    addAdvisories('snykMar2.json')
-    # add_cve_publish_date()
-    # parse_fixing_releases()
+    #addAdvisories('snykMar2.json')
+    add_cve_publish_date()
+    #parse_fixing_releases()
