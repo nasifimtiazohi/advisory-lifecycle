@@ -19,12 +19,11 @@ def getPackageId(package, ecosystem):
     return results[0]['id']
 
 def add_cve_publish_date():
-    cves = 'select * from advisoryCVE where publish_date is null and state is null'
+    cves = 'select distinct cve from advisoryCVE where cve not in (select cve from CVE);'
     results = sql.execute(cves)
     logging.info('%s cves need to be processed',len(results))
 
     for item in results:
-        advisory_id = item['advisory_id']
         cve = item['cve']
 
         logging.info('fetching cve started: %s', cve)
@@ -38,14 +37,14 @@ def add_cve_publish_date():
         data = json.loads(response.content)
         if not data:
             #REJECTED CVE
-            updateQ = 'update advisoryCVE set state = %s where advisory_id = %s and cve = %s'
-            sql.execute(updateQ,('rejected',advisory_id, cve))
+            insertQ = 'insert into CVE values (%s,%s,%s)'
+            sql.execute(insertQ,(cve,None,'rejected'))
             logging.info('fetching cve ended')
             continue 
 
         publishDate = dt.parse(data['Published'])
-        updateQ = 'update advisoryCVE set publish_date = %s where advisory_id = %s and cve = %s'
-        sql.execute(updateQ,(publishDate,advisory_id, cve))
+        insertQ = 'insert into CVE values (%s,%s,%s)'
+        sql.execute(insertQ,(cve,publishDate,None))
         logging.info('fetching cve ended')
     
 def addReferences(advisory):
@@ -65,9 +64,10 @@ def addReferences(advisory):
                     exit()
 
 def addVersions(advisory):
-    # there is a reading problem in versions from the vulnerability page; 
-    # fixing with naive logic that if there is no space after comma from the list page (versions),
-    # it means || in details page (affected versions)
+    ''' there is a reading problem in versions from the vulnerability page; 
+    fixing with naive logic that if there is no space after comma from the list page (versions),
+    it means || in details page (affected versions) '''
+
     if advisory['affected_versions'].replace(' || ',',') != advisory['versions'] and not advisory['affected_versions']=='ALL':
         pattern = r',\S'
         string = advisory['versions']
@@ -79,7 +79,7 @@ def addVersions(advisory):
             if i != len(indices) - 1:
                 s += ' || '
 
-        logging.info("version string issue with %s and %s and %s and %s",advisory['vulId'],advisory['versions'],advisory['affected_versions'],s)
+        #logging.info("version string issue with %s and %s and %s and %s",advisory['vulId'],advisory['versions'],advisory['affected_versions'],s)
         advisory['affected_versions'] = s
 
         
@@ -97,7 +97,7 @@ def addAdvisories(datafile):
         advisories = json.load(read_file)
 
     for i,advisory in enumerate(advisories):
-        #logging.info('processing %dth data',i)
+        logging.info('processing %dth advisory data',i)
         try:
             selectQ = 'select * from advisory where id = %s'
             if not sql.execute(selectQ,(advisory['vulId'],)):
@@ -221,6 +221,6 @@ def parse_fixing_releases():
 
 if __name__=='__main__':
     
-    #addAdvisories('snykMar2.json')
+    addAdvisories('snykMar4.json')
+    parse_fixing_releases()
     add_cve_publish_date()
-    #parse_fixing_releases()
