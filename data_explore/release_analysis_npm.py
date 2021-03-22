@@ -59,11 +59,13 @@ def get_prior_release(package, version):
 
 
 if __name__ == '__main__':
+    #get repository remote url of packages
     packages = common.getPackagesToSearchRepository(ecosystem)
     for item in packages:
         id, repo = item['id'], get_repository_url(item['name'])
         sql.execute('insert into repository values(%s,%s)',(id,repo))
     
+    # get release info (publish date and prior release) for each fixing release
     packages = common.getPackagesToProcessRelease(ecosystem)
     for item in packages:
         id, package, version = item['package_id'], item['package'], item['version']
@@ -72,5 +74,8 @@ if __name__ == '__main__':
         prior_release = get_prior_release(package, version)
         print(package, version, publish_date, prior_release)
         sql.execute('insert into release_info values(%s,%s,%s,%s)',(id, version, publish_date, prior_release))
+    
+    # get commits for fixed advisories
+    
 
     
