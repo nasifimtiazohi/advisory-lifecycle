@@ -130,6 +130,7 @@ dmypy.json
 
 # data folder
 snyk/data/
+data_explore/temp/
 
 #mac files
 .DS_Store
