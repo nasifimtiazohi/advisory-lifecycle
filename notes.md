@@ -22,3 +22,23 @@
 - Package Manager
 
 
+# reference links 
+Release Note
+Exploit
+Changelog
+Advisory (ies)
+Additional Information
+Blog
+PoC
+Diff
+Announcement
+Vulnerable Code / Details (vulnerab)
+NVD
+HackerOne
+Google Group Forum
+Documentation
+Mailing list
+Vulnerabil
+Hacker News
+Disclosure
+

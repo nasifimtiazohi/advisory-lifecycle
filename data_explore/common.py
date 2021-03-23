@@ -2,6 +2,9 @@
 get github release note
 '''
 import sql
+import os
+from git import Repo 
+root_path = os.getcwd()
 
 def getPackagesToSearchRepository(ecosystem):
     q = '''select *
@@ -87,6 +90,51 @@ def get_commits():
                     exit()
 
 
+def get_commit_of_release(repo, release):
+    '''repo is a gitpython object, while version is a string taken from ecosystem data'''
+    # get closest matching tag, go to that commit and ensure the dependency file updated to that version in recent commits, at least for npm
+    tags = repo.tags
+    candidate_tags = []
+    for tag in tags:
+        if release in tag.path:
+            candidate_tags.append(tag)
+    assert len(candidate_tags) == 1
+    tag = candidate_tags[0]
+    try:
+        message = tag.message
+        #insert into database.
+
+    return tag.commit
+
+
+def analyze_change_complexity():
+    q='''select *
+        from advisory a
+        join fixing_releases fr on a.id = fr.advisory_id
+        join release_info ri on fr.version = ri.version and ri.package_id=a.package_id
+        join repository r on a.package_id = r.package_id;'''
+    results = sql.execute(q)
+    
+    for item in results:
+        repo_url, release, prior_release = item['url'], item['ri.version'], item['prior_release']
+        print(repo_url, release, prior_release)
+        repo_name = repo_url.split('/')[-1]
+
+        os.chdir(root_path + '/temp/')
+        os.system('git clone {}.git'.format(repo_url))
+
+        repo = Repo.init(root_path + '/temp/' + repo_name)
+        #get commit of the tags with release
+        cur_commit, prior_commit = get_commit_of_release(repo,release), get_commit_of_release(repo,prior_release)
+        #TODO update db and get diff between the two and analyze complexity 
+    
+        break
+        os.chdir(root_path + '/temp/')
+        os.system('rm -rf {}'.format(repo_name))
+
+
+
+
 if __name__=='__main__':
-    get_commits()
+    analyze_change_complexity()
 
