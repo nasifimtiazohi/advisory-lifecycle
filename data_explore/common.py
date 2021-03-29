@@ -117,6 +117,7 @@ def get_fix_commits():
 
 
 def get_commit_of_release(repo, package_id, release):
+    logging.info(release)
     '''repo is a gitpython object, while version is a string taken from ecosystem data'''
     # get closest matching tag, go to that commit and ensure the dependency file updated to that version in recent commits, at least for npm
     tags = repo.tags
@@ -130,6 +131,8 @@ def get_commit_of_release(repo, package_id, release):
     elif len(candidate_tags) == 1:
         tag = candidate_tags[0]
     else:
+        logging.info('too many tags')
+        print(candidate_tags)
         package = sql.execute('select name from package where id=%s',(package_id,))[0]['name']
         new_candidates = []
         for tag in candidate_tags:
