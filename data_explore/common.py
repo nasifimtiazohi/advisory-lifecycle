@@ -13,6 +13,39 @@ repo_path = root_path +'/temp'
 norepo = 'no repository listed'
 manualcheckup = 'manual checkup needed'
 
+import collections
+def flatten(dictionary, parent_key=False, separator='.'):
+    """
+    Turn a nested dictionary into a flattened dictionary
+    :param dictionary: The dictionary to flatten
+    :param parent_key: The string to prepend to dictionary's keys
+    :param separator: The string used to separate flattened keys
+    :return: A flattened dictionary
+    """
+
+    items = []
+    for key, value in dictionary.items():
+        new_key = str(parent_key) + separator + key if parent_key else key
+        if isinstance(value, collections.MutableMapping):
+            items.extend(flatten(value, new_key, separator).items())
+        elif isinstance(value, list):
+            for k, v in enumerate(value):
+                items.extend(flatten({str(k): v}, new_key).items())
+        else:
+            items.append((new_key, value))
+    return dict(items)
+
+def search_for_github_repo(package, data):
+    data = flatten(data)
+    for k in data.keys():
+        if isinstance(data[k], str) and '\n' not in data[k] and data[k].startswith('https://github.com') and package in data[k]:
+            url = data[k]
+            if url.endswith('.git'):
+                url=url[:-len('.git')]
+            return url[:url.find('.com/')+5] + '/'.join( url[url.find('.com/')+5:].split('/')[:2] )
+    return None
+
+
 def getPackagesToSearchRepository(ecosystem):
     q = '''select *
             from package
@@ -68,6 +101,8 @@ def parse_isue():
 
 def parse_repository_url_from_references(id, name, url):
     if 'github' in url or 'gitlab' in url:
+        if url.endswith('.git'):
+                url=url[:-len('.git')]
         return url[:url.find('.com/')+5] + '/'.join( url[url.find('.com/')+5:].split('/')[:2] )
     else:
         print (id,name,url)
@@ -85,6 +120,7 @@ def get_fix_commits():
 
     for item in results:
         advisory_id, package_id, package, repo_url = item['id'], item['package_id'], item['name'], item['repository_url']
+        print(advisory_id, package_id, package, repo_url)
 
         q = '''select *
             from advisory_references
@@ -96,6 +132,7 @@ def get_fix_commits():
             if 'commit' in item['name'].lower() or 'commit' in item['url'].lower():
                 sha = parse_sha_from_commit_reference(item['name'], item['url'])
                 if sha:
+                    logging.info(sha)
                     commits.append(sha)
                     if repo_url == norepo:
                         repo_url = parse_repository_url_from_references(package_id, package, item['url'])
@@ -112,6 +149,7 @@ def get_fix_commits():
                 else:
                     print(error)
                     exit()
+        
     
     #TODO: PR?
 
@@ -227,10 +265,51 @@ def analyze_change_complexity():
         # os.chdir(root_path + '/temp/')
         # os.system('rm -rf {}'.format(repo_name))
 
+def sanitize_repo_url():
+    #maven mistakes
+    s='Name: 1, dtype: object'
+    q='''select *
+        from package
+        where repository_url like %s;'''
+    results = sql.execute(q,('%{}%'.format(s)))
+    for item in results:
+        id, url = item['id'], item['repository_url']
+        url=url.strip()
+        if url.endswith(s):
+            url = url[:-len(s)]
+            url.strip()
+        sql.execute('update package set repository_url=%s where id = %s',(url,id))
+    
+    #.git at the end  
+    s='.git'
+    q='''select *
+        from package
+        where repository_url like %s;'''
+    results = sql.execute(q,('%{}%'.format(s)))
+    for item in results:
+        id, url = item['id'], item['repository_url']
+        url=url.strip()
+        if url.endswith(s):
+            url = url[:-len(s)]
+            url.strip()
+        sql.execute('update package set repository_url=%s where id = %s',(url,id))
+    
+    #git@ at the beginning mistake
+    s='git@'
+    q='''select *
+        from package
+        where repository_url like %s;'''
+    results = sql.execute(q,('%{}%'.format(s)))
+    for item in results:
+        id, url = item['id'], item['repository_url']
+        url=url.strip()
+        url = url[url.find('git@')+4:]
+        sql.execute('update package set repository_url=%s where id = %s',(url,id))
 
-
+    #and ends with ...
 
 if __name__=='__main__':
-    analyze_change_complexity()
+    #analyze_change_complexity()
     #get_fix_commits()
+    sanitize_repo_url()
 
