@@ -66,12 +66,12 @@ if __name__ == '__main__':
         sql.execute('update package set repository_url=%s where id = %s',(repo,id))
     
     # get release info (publish date and prior release) for each fixing release
-    packages = common.getPackagesToProcessRelease(ecosystem)
-    for item in packages:
-        id, package, version = item['package_id'], item['package'], item['version']
-        publish_date = get_release_publish_date(package, version)
-        prior_release = get_prior_release(package, version)
-        sql.execute('insert into release_info values(%s,%s,%s,%s)',(id, version, publish_date, prior_release))
+    # packages = common.getPackagesToProcessRelease(ecosystem)
+    # for item in packages:
+    #     id, package, version = item['package_id'], item['package'], item['version']
+    #     publish_date = get_release_publish_date(package, version)
+    #     prior_release = get_prior_release(package, version)
+    #     sql.execute('insert into release_info values(%s,%s,%s,%s)',(id, version, publish_date, prior_release))
     
     # get commits for fixed advisories
     

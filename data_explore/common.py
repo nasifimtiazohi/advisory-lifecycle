@@ -6,6 +6,7 @@ import os
 from git import Repo 
 import logging, coloredlogs
 from dateutil import parser as dt
+import requests, json
 import subprocess, shlex
 coloredlogs.install()
 root_path = os.getcwd()
@@ -66,33 +67,115 @@ def getPackagesToProcessRelease(ecosystem):
     return results
     
 def parse_sha_from_commit_reference(name, url):
-    links_with_40bit_sha =  ['github', 'gitlab','bitbucket','git.openssl','git.savannah','git.videolan','git-wip-us']
+    ''' returns a list of shas'''
+
+    links_with_40bit_sha =  ['github', 'gitlab','bitbucket','git.openssl','git.savannah','git.videolan','git-wip-us','gitbox','pagure']
     for l in links_with_40bit_sha:
         if '#diff' in url:
             url = url[:url.find('#diff')]
         
+        #case - last 40 bit is sha 
         sha = url[-40:]
         rest = url[:-40]
+        if rest.endswith('commit/') or rest.endswith('commits/') or rest.endswith('h=') or rest.endswith('id=') or rest.endswith('/c/'):
+            return [sha]
+        
+        if 'github' in url and 'pull' in url:
+            return parse_sha_from_github_PR_reference(name,url)
+        
+        if 'git.moodle.org' in url:
+            #there are five for the same package moodle. check manually
+            return ['manually check git moodle']
+        if 'gitbox.apache.org' in url:
+            return ['manually check git moodle']
+        
+        if 'svn.apache.org' in url:
+            return ['not git']
+        
+        if 'github.com' in url and 'commit/' in url:
+            s='commit/'
+            sha = url[url.find(s) +len(s):]
+            if len(sha) < 40:
+                return ['short commit']
+        
+        if 'bitbucket' in url and 'commits/' in url:
+            s='commits/'
+            sha = url[url.find(s) +len(s):]
+            if len(sha) < 40:
+                return ['short commit']
+            
+        if 'compare' in url:
+            return []
+        
+        invalid_urls =[
+            'https://github.com/theupdateframework/tuf/commits/develop',
+            'https://github.com/alkacon/apollo-template/commits/branch_10_5_x',
+            'https://hg.tryton.org/trytond/rev/f58bbfe0aefb',
+            #bitbucket repos are private
+            'https://bitbucket.org/rick446/easywidgets/commits/cb446d6b0b5f9597c3761e61facfa1fac34b8e5c?at=default',
+            'https://bitbucket.org/conservancy/kallithea/commits/ae947de541d5630e5505c7c8ded05cd37c7f232b?at=0.2',
+            'https://bitbucket.org/cthedot/cssutils/commits/4077971c214b4f2eb4889a3ff0cb940e9e5d26a5?at=TAG_0.9.6a2',
+            'https://bitbucket.org/cthedot/cssutils/commits/4ff52ad59c129e908a9250fd00cfed1aaf9d15f8?at=TAG_0.9.6a2'
+        ]
+        if url in invalid_urls:
+            return []
 
-        if rest.endswith('commit/') or rest.endswith('commits/') or rest.endswith('h=') or rest.endswith('id='):
-            return sha
+        if url == 'https://github.com/shopware/platform/search?q=NEXT-9174&type=Commits':
+            return ['78f3728a342359dc033a0994d2277e1ddbe53769','fb7c8909404bdbb51194f149c1c7950d38ca2f97']
+        if url == 'https://github.com/cyu/rack-cors/commit/3f51048cf2bb893d58bde3dfa499220210d785d00':
+            return '3f51048cf2bb893d58bde3dfa499220210d785d0'
+        if url == 'https://github.com/apache/felix/commit/b5917272f7a45f1c6c245df2ced9aa32caef53c7?diff=split':
+            return 'b5917272f7a45f1c6c245df2ced9aa32caef53c7'
+        if url == 'https://github.com/Rich-Harris/devalue/commits?author=pi0':
+            return ['14cae90d1fcd5e0083e3a1741238e017684890d7','751ed46deb404f5ed5d3ed49ee400903792530d5','fe3d061a833a0e2b1176fbf4ee74c6fb7ef8f082']
+        if url=='https://github.com/sinatra/sinatra/commit/8aa6c42ef724f93ae309fb7c5668e19ad547eceb#commitcomment-27964109':
+            return ['8aa6c42ef724f93ae309fb7c5668e19ad547eceb']
+        if url == 'https://github.com/openstack/keystonemiddleware/blob/cbe9accc06a80ef8b0013983e96818379452e7da/releasenotes/notes/bug-1490804-87c0ff8e764945c1.yaml':
+            return ['96ab58e6863c92575ada57615b19652e502adfd8']
+        if url == 'https://github.com/apache/lucene-solr/commit/926cc4d65b6d2cc40ff07f76d50ddeda947e3cc4%23diff-5ec4e4f72cf2a1f5d475f0283ec684db':
+            return ['926cc4d65b6d2cc40ff07f76d50ddeda947e3cc4']
+        if url == 'https://github.com/sparklemotion/nokogiri/issues/1992':
+            return ['83018426d0af80295c2c2fe1eaba1d6da00e73a9']
     
     # TODO check following conditions
-    # how to handle svn links - are they mostly old? we can get them from scraping the webpage that the url lands
     # anonscm - last 40 chars but only for cocoapods and link not working - so don't bother
-    # git.moodle : if ends with h=40 chars otherwise MDL - contains multiple commits
     # https://josm.openstreetmap.de/changeset - scrape date from web link
 
     logging.info(url)
-    return manualcheckup
+    exit()
+    return [manualcheckup]
+
+def parse_sha_from_github_compares(name,url):
+    #TODO figure out how to do
+    pass
+
 
 def parse_sha_from_github_PR_reference(name, url):
-    '''look for both github and pull and then extract the commits involved'''
-    ''' but some can be missed in the above way. check if name contain github pr as well and inspect the url'''
-    if 'github' in url and 'pull' in url:
-        pass
-    elif 'github' in name and 'PR' in name:
-        pass
+    prefix = 'https://github.com/'
+    assert url.startswith(prefix)
+
+    url = url[len(prefix):]
+    url = url.split('/')[:4]
+
+    #sanitize pull number
+    i=0
+    while i<len(url[-1]):
+        if not url[-1][i].isdigit():
+            break
+        i+=1
+    url[-1] = url[-1][:i]
+    
+
+    assert url[2] == 'pull'
+    url[2] = 'pulls'
+    endpoint = 'https://api.github.com/repos/' + '/'.join(url) + '/commits'
+    commits = json.loads(requests.get(endpoint).content)
+    if not isinstance(commits, list):
+        return [manualcheckup]
+    shas = []
+    for commit in commits:
+        shas.append(commit['sha'])
+    return shas
 
 def parse_isue():
     #issue , bug, JIRA
@@ -104,8 +187,12 @@ def parse_repository_url_from_references(id, name, url):
         if url.endswith('.git'):
                 url=url[:-len('.git')]
         return url[:url.find('.com/')+5] + '/'.join( url[url.find('.com/')+5:].split('/')[:2] )
+    elif 'svn.apache.org' in url:
+        return 'not git'
+    elif url == 'https://bitbucket.org/ianb/paste/commits/fcae59df8b56d2587e295593bee8a6d517ef2105':
+        return norepo
     else:
-        print (id,name,url)
+        print ('i am here fuck it',id,name,url)
         exit() #TODO: replace with norepo afterwards or handle other repos
 
 def get_fix_commits():
@@ -137,22 +224,28 @@ def get_fix_commits():
                     if repo_url == norepo:
                         repo_url = parse_repository_url_from_references(package_id, package, item['url'])
                         logging.info(repo_url)
-                        sql.execute('update package set repository_url=%s where id=%s',(repo_url,package_id))
+                        #sql.execute('update package set repository_url=%s where id=%s',(repo_url,package_id))
                             
-        for sha in commits:
-            try:
-                sql.execute('insert into fix_commits values(%s,%s,%s,null,null)',(advisory_id, package_id, sha))
-            except sql.pymysql.IntegrityError as error:
-                if error.args[0] == sql.PYMYSQL_DUPLICATE_ERROR:
-                    pass
-                    #safely continue
-                else:
-                    print(error)
-                    exit()
+        # for sha in commits:
+        #     try:
+        #         sql.execute('insert into fix_commits values(%s,%s,%s,null,null)',(advisory_id, package_id, sha))
+        #     except sql.pymysql.IntegrityError as error:
+        #         if error.args[0] == sql.PYMYSQL_DUPLICATE_ERROR:
+        #             pass
+        #             #safely continue
+        #         else:
+        #             print(error)
+        #             exit()
         
     
     #TODO: PR?
-
+    '''look for both github and pull and then extract the commits involved'''
+    ''' but some can be missed in the above way. check if name contain github pr as well and inspect the url'''
+    # if 'github' in url and 'pull' in url:
+    #     pass
+    # elif 'github' in name and 'PR' in name:
+    #     pass
+    print('hey I am done')
 
 def get_commit_of_release(repo, package_id, release):
     logging.info(release)
@@ -265,51 +358,9 @@ def analyze_change_complexity():
         # os.chdir(root_path + '/temp/')
         # os.system('rm -rf {}'.format(repo_name))
 
-def sanitize_repo_url():
-    #maven mistakes
-    s='Name: 1, dtype: object'
-    q='''select *
-        from package
-        where repository_url like %s;'''
-    results = sql.execute(q,('%{}%'.format(s)))
-    for item in results:
-        id, url = item['id'], item['repository_url']
-        url=url.strip()
-        if url.endswith(s):
-            url = url[:-len(s)]
-            url.strip()
-        sql.execute('update package set repository_url=%s where id = %s',(url,id))
-    
-    #.git at the end  
-    s='.git'
-    q='''select *
-        from package
-        where repository_url like %s;'''
-    results = sql.execute(q,('%{}%'.format(s)))
-    for item in results:
-        id, url = item['id'], item['repository_url']
-        url=url.strip()
-        if url.endswith(s):
-            url = url[:-len(s)]
-            url.strip()
-        sql.execute('update package set repository_url=%s where id = %s',(url,id))
-    
-    #git@ at the beginning mistake
-    s='git@'
-    q='''select *
-        from package
-        where repository_url like %s;'''
-    results = sql.execute(q,('%{}%'.format(s)))
-    for item in results:
-        id, url = item['id'], item['repository_url']
-        url=url.strip()
-        url = url[url.find('git@')+4:]
-        sql.execute('update package set repository_url=%s where id = %s',(url,id))
 
-    #and ends with ...
 
 if __name__=='__main__':
     #analyze_change_complexity()
-    #get_fix_commits()
-    sanitize_repo_url()
+    get_fix_commits()
 

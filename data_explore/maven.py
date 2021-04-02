@@ -54,15 +54,31 @@ def get_repository_url(package):
     logging.info(url)
     return url
 
+def sanitize_repo_url():
+    #git@ at the beginning mistake
+    s='git@github.com:'
+    q='''select *
+        from package
+        where repository_url like %s;'''
+    results = sql.execute(q,('%{}%'.format(s)))
+    print(len(results))
+    for item in results:
+        id, url = item['id'], item['repository_url']
+        url = url.strip()
+        url = url[url.find(s)+len(s):]
+        url = 'https://github.com/' + url
+        print(url)
+        sql.execute('update package set repository_url=%s where id = %s',(url,id))
 
 
 if __name__=='__main__':
     #get repository remote url of packages
     packages = common.getPackagesToSearchRepository(ecosystem)
-    c=0
     for item in packages:
         id, repo = item['id'], get_repository_url(item['name'])
         sql.execute('update package set repository_url=%s where id = %s',(repo,id))
+    
+    sanitize_repo_url()
 
     
     
