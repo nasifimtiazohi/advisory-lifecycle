@@ -29,7 +29,9 @@ bitbucket_urls = [
     'https://bitbucket.org/birkenfeld/pygments-main/commits/0036ab1c99e256298094505e5e92fdacdfc5b0a8',
     'https://bitbucket.org/birkenfeld/pygments-main/commits/6b4baae517b6aaff7142e66f1dbadf7b9b871f61?at=default',
     'https://bitbucket.org/ianb/paste/commits/fcae59df8b56d2587e295593bee8a6d517ef2105',
-    'https://bitbucket.org/rick446/easywidgets/pull-requests/3'
+    'https://bitbucket.org/rick446/easywidgets/pull-requests/3',
+    'https://bitbucket.org/birkenfeld/pygments-main/pull-requests/501/fix-shell-injection-in/diff',
+    'https://bitbucket.org/xi/libyaml/pull-request/1/fix-cve-2013-6393/diff'
 ]
 
 def flatten(dictionary, parent_key=False, separator='.'):
@@ -82,9 +84,10 @@ def getPackagesToProcessRelease(ecosystem):
     results =  sql.execute(q,(ecosystem,manualcheckup))
     return results
     
-def parse_sha_from_commit_reference(name, url):
+def parse_sha_from_commit_reference(url):
     ''' returns a list of shas'''
     links_with_40bit_sha =  ['github', 'gitlab','bitbucket','git.openssl','git.savannah','git.videolan','git-wip-us','gitbox','pagure']
+    short_commit_length = 20
     for l in links_with_40bit_sha:
         if '#diff' in url:
             url = url[:url.find('#diff')]
@@ -104,16 +107,24 @@ def parse_sha_from_commit_reference(name, url):
         if 'github.com' in url and 'commit/' in url:
             s='commit/'
             sha = url[url.find(s) +len(s):]
-            if len(sha) < 40:
+            if len(sha) < short_commit_length:
                 sha = 'short commit: ' + sha 
                 return [sha]
+            else:
+                if len(sha) == 39:
+                    return [sha]
+
         
         if 'bitbucket' in url and 'commits/' in url:
             s='commits/'
             sha = url[url.find(s) +len(s):]
-            if len(sha) < 40:
+            if len(sha) < short_commit_length:
                 sha = 'short commit: ' + sha 
                 return [sha]
+            else:
+                if len(sha) == 39:
+                    return [sha]
+
             
         if 'compare' in url:
             return []
@@ -178,7 +189,7 @@ def parse_sha_from_commit_reference(name, url):
     exit()
     return [manualcheckup]
 
-def parse_sha_from_github_compares(name,url):
+def parse_sha_from_github_compares(url):
     if url == 'https://github.com/moby/moby/compare/769acfec2928c47a35da5357d854145b1036448d...b6a9dc399be31c531e3753104e10d74760ed75a2':
         return ['3162024e28c401750388da3417a44a552c6d5011','545b440a80f676a506e5837678dd4c4f65e78660','614a9690e7d78be0501fbb0cfe3ecc7bf4fca638','b6a9dc399be31c531e3753104e10d74760ed75a2']
     pass
@@ -189,8 +200,16 @@ def parse_sha_from_github_PR_reference(url):
 
     if url == 'https://cwiki.apache.org/confluence/display/WW/S2-054':
         return []
+    if url == 'https://github.com/blakeembrey/no-case/issues/17':
+        return [] 
     if url == 'https://review.opendev.org/725894':
         return ['ba89d27793c2d3a26ad95642660fa9bd820ed3be']
+    if url == 'https://github.com/borgbackup/borg/blob/1.1.3/docs/changes.rst#version-113-2017-11-27':
+        return []
+    if 'http://cxf.apache.org/security-advisories.data' in url:
+        return []
+    if url == 'https://github.com/shy2850/node-server/issues/10':
+        return []
     if url in bitbucket_urls:
         return []
     assert url.startswith(prefix)
@@ -212,6 +231,8 @@ def parse_sha_from_github_PR_reference(url):
         return []
     if url == 'https://github.com/node-modules/charset/issues/10':
         url = 'https://github.com/node-modules/charset/pull/11'
+    if url == 'https://github.com/openshift/origin/issues/3951':
+        url = 'https://github.com/openshift/origin/pull/10830'
 
     url = url[len(prefix):]
     url = url.split('/')[:4]
@@ -242,27 +263,208 @@ def parse_isue():
     # if github issue then take issue date
     pass
 
-def parse_repository_url_from_references(id, name, url):
+def parse_repository_url_from_references(url):
+    if 'https://salsa.debian.org/security-tracker-team/security-tracker' in url:
+        return 'https://salsa.debian.org/security-tracker-team/security-tracker'
     if 'github' in url or 'gitlab' in url:
         if url.endswith('.git'):
                 url=url[:-len('.git')]
         return url[:url.find('.com/')+5] + '/'.join( url[url.find('.com/')+5:].split('/')[:2] )
+    
+    s='https://gitbox.apache.org/repos/asf?p='
+    if url.startswith(s):
+        url = url[len(s):]
+        assert url.count('.git') == 1
+        url = url[:url.find('.git')]
+        return 'https://github.com/apache/'+url
+    
+    s='https://git-wip-us.apache.org/repos/asf?p='
+    if url.startswith(s):
+        url = url[len(s):]
+        assert url.count('.git') == 1
+        url = url[:url.find('.git')]
+        return 'https://github.com/apache/'+url
+    
+    if 'https://pagure.io/ipsilon' in url:
+        return 'https://github.com/ipsilon-project/ipsilon'
+    
+    if 'bitbucket' in url:
+        return url[:url.find('.org/')+5] + '/'.join( url[url.find('.org/')+5:].split('/')[:2] )
     elif 'svn.apache.org' in url:
-        return 'not git'
+        return notgit
     elif url in bitbucket_urls:
         return norepo
+    elif 'git.moodle.org' in url:
+        return 'https://github.com/moodle/moodle'
+    elif 'https://git.spip.net/spip/spip' in url:
+        return 'https://github.com/spipremix/spip'
+    elif 'opendev' in url:
+        return notgit #it's git but we're just ignoring
     else:
-        print ('i am here fuck it',id,name,url)
-        exit() #TODO: replace with norepo afterwards or handle other repos
+        print ('i am here fuck it', url)
+        exit() #manually inspect
+
+def process_repo(package_id,url):
+        repo_url = parse_repository_url_from_references(url)
+        current_value = sql.execute('select repository_url from package where id =%s',(package_id,))[0]['repository_url']
+
+        repos_to_avoid = [
+            'https://github.com/rapid7/metasploit-framework',
+            'https://github.com/github/advisory-review',
+            'https://github.com/rubysec/ruby-advisory-db',
+            'https://salsa.debian.org/security-tracker-team/security-tracker',
+            'https://github.com/FriendsOfPHP/security-advisories',
+            'https://github.com/snyk/vulndb-internal'
+        ]
+        if repo_url in repos_to_avoid:
+            return current_value
+
+        print(current_value, repo_url)
+        if current_value == norepo:
+            sql.execute('update package set repository_url=%s where id=%s',(repo_url,package_id))
+            sql.execute('insert into repository_inferred values(%s)',(package_id,))
+        else:
+            archived_repos = [
+                'https://github.com/bundler/bundler',
+                'https://github.com/ansible/ansible-modules-core',
+                'https://github.com/apache/tomcat80',
+                'https://github.com/ansible/ansible-modules-extras',
+                'https://github.com/apache/tomcat55',
+                'https://github.com/npm/npm'
+            ]
+            if repo_url in archived_repos:
+                return current_value
+            
+            ignore_packages = [67, 73, 163, 188, 209, 210, 242, 248, 249, 271, 272, 307, 478,480,491,531,602,706,778,844,1226,1329,2924, 3203,3462,3622,
+                    562, 563, 1180, 843, 875, 1192, 1193, 1243, 1267, 1314, 1319, 1332, 1390, 1391, 1506, 3742, 3889, 3895,
+                    1585, 1587, 1707, 1708, 1738, 1739, 1740, 1742, 1778, 1852, 1913, 1970, 1993, 2016, 2062, 2335, 2357, 2534, 2542, 2622,
+                    2684, 2848
+            ]
+            if package_id in ignore_packages:
+                return current_value
+            
+            if repo_url == notgit:
+                return current_value
+            
+            #current value sanitization
+            if 'github' in current_value and current_value.endswith('.git'):
+                current_value = current_value[:-4]
+            if current_value.endswith('/'):
+                current_value = current_value[:-1]
+            if 'bitbucket' in current_value and current_value.endswith('/src'):
+                current_value = current_value[:-4]
+            
+            
+
+            if current_value != repo_url:
+                item = sql.execute('select * from package where id =%s',(package_id,))[0]
+                package_name, ecosystem = item['name'], item['ecosystem']
+                if 'fisheye.hudson-ci' in current_value:
+                    sql.execute('update package set repository_url=%s where id=%s',(repo_url,package_id))
+                    return repo_url
+                if (package_name=='com.sksamuel.diff:diff' and repo_url=='https://github.com/kpdecker/jsdiff') \
+                    or (package_name=='yiisoft/yii2' and repo_url == 'https://github.com/yiisoft/yii2') \
+                    or (package_name=='org.springframework.cloud:spring-cloud-netflix-zuul' and repo_url=='https://github.com/spring-cloud/spring-cloud-netflix') \
+                    or (package_name=='org.webjars.npm:electron' and repo_url =='https://github.com/electron/electron') \
+                    or('com.softwaremill.akka-http-session:core' in package_name and repo_url=='https://github.com/softwaremill/akka-http-session') \
+                    or (package_name=='plone.app.dexterity' and repo_url=='https://github.com/plone/plone.app.dexterity') \
+                    or (package_name=='getkirby/panel' and repo_url=='https://github.com/getkirby/kirby') \
+                    or (package_name=='typo3/cms-core' and repo_url=='https://github.com/TYPO3/TYPO3.CMS') \
+                    or (package_name == 'froala-editor' and repo_url=='https://github.com/froala/wysiwyg-editor') \
+                    or (package_name=='plone' and repo_url=='https://github.com/plone/Products.CMFPlone') \
+                    or (package_name=='org.webjars.npm:vue' and repo_url == 'https://github.com/vuejs/vue') \
+                    or (package_name=='org.eclipse.milo:sdk-client' and repo_url=='https://github.com/eclipse/milo') \
+                    or (package_name=='org.apache.tomcat:coyote' and repo_url=='https://github.com/apache/tomcat') \
+                    or (package_name=='django-allauth' and repo_url == 'https://github.com/pennersr/django-allauth') \
+                    or (package_name == 'com.diffplug.spotless:spotless-maven-plugin' and repo_url == 'https://github.com/diffplug/spotless') \
+                    or ('io.spray:spray-json' in package_name and repo_url == 'https://github.com/spray/spray-json') \
+                    or ('io.spray:spray-httpx' in package_name and repo_url == 'https://github.com/spray/spray') \
+                    or (package_name=='datatables' and repo_url == 'https://github.com/DataTables/DataTables')  \
+                    or (package_name == 'org.jruby:jruby' and repo_url == 'https://github.com/jruby/jruby') \
+                    or (package_name=='org.apache.maven.shared:maven-shared-utils' and repo_url == 'https://github.com/apache/maven-shared-utils') \
+                    or (package_name == 'com.github.noraui:noraui' and repo_url == 'https://github.com/NoraUi/NoraUi') \
+                    or (package_name == 'com.zeroc:icegrid' and repo_url == 'https://github.com/zeroc-ice/ice'):
+                    sql.execute('update package set repository_url=%s where id=%s',(repo_url,package_id))
+                    return repo_url
+                if current_value.endswith(package_name) or current_value.endswith(package_name.split('/')[-1]):
+                    #fairly reliable heuristic
+                    return current_value
+                if ecosystem=='Maven' and current_value.endswith(package_name.split(':')[-1]):
+                    return current_value
+                if ecosystem=='Composer' and repo_url.endswith(package_name):
+                    sql.execute('update package set repository_url=%s where id=%s',(repo_url,package_id))
+                    return repo_url
+                if package_name.endswith('tinymce') and repo_url=='https://github.com/tinymce/tinymce':
+                    sql.execute('update package set repository_url=%s where id=%s',(repo_url,package_id))
+                    return repo_url
+                #check redirection
+                if requests.get(current_value).url == repo_url:
+                    sql.execute('update package set repository_url=%s where id=%s',(repo_url,package_id))
+                    return repo_url
+                if requests.get(repo_url).url == current_value:
+                    return current_value
+                if current_value.lower() == repo_url.lower():
+                    return current_value
+                #check possible fork
+                if current_value.split('/')[-1] == repo_url.split('/')[-1]:
+                    return current_value
+                #check gitbox repo
+                s='https://gitbox.apache.org/repos/asf?p='
+                if current_value.startswith(s):
+                    current_value = current_value[len(s):]
+                    assert current_value.count('.git') == 1
+                    current_value = current_value[:current_value.find('.git')]
+                    if repo_url.split('/')[-1] == current_value:
+                        sql.execute('update package set repository_url=%s where id=%s',(repo_url,package_id))
+                        return repo_url
+                #check git-wip-us repo
+                s='https://git-wip-us.apache.org/repos/asf?p='
+                if current_value.startswith(s):
+                    current_value = current_value[len(s):]
+                    assert current_value.count('.git') == 1
+                    current_value = current_value[:current_value.find('.git')]
+                    if repo_url.split('/')[-1] == current_value:
+                        sql.execute('update package set repository_url=%s where id=%s',(repo_url,package_id))
+                        return repo_url
+                if current_value == 'http://java.net/projects/mojarra/sources':
+                    if repo_url == 'https://github.com/eclipse-ee4j/mojarra':
+                        sql.execute('update package set repository_url=%s where id=%s',(repo_url,package_id))
+                        return repo_url
+                if current_value.startswith(repo_url):
+                    s='/tree/master'
+                    if current_value.endswith(s) and current_value[:current_value.find(s)]==repo_url:
+                        sql.execute('update package set repository_url=%s where id=%s',(repo_url,package_id))
+                        return repo_url
+
+                    parts = current_value.split('/')
+                    if package_name.split('/')[-1] in parts[-1]:
+                        return current_value
+                    if 'node' in parts[-1]:
+                        return current_value
+                    
+                    if parts[-2] == 'tree' and parts[-1].startswith('v'):
+                        sql.execute('update package set repository_url=%s where id=%s',(repo_url,package_id))
+                        return repo_url
+
+                # if current_value.startswith(repo_url) and current_value.split('/')[-2] == 'tree':
+                #     #current value maps to a branch
+                #     if package_name not in current_value.split('/')[-1]:
+                #         sql.execute('update package set repository_url=%s where id=%s',(repo_url,package_id))
+                #         return repo_url
+                
+
+            print(current_value, repo_url)
+            assert current_value == repo_url
+
+        return repo_url
 
 def get_fix_commits():
-    q='''select distinct a.id, a.package_id, p.name, p.repository_url 
+    q='''select distinct a.id, a.package_id, p.name, p.repository_url
         from advisory a
         join fixing_releases fr on a.id = fr.advisory_id
         join package p on a.package_id = p.id
-        where a.id not in
-        (select advisory_id from fix_commits)
-        and repository_url is not null;'''
+        where repository_url is not null
+        -- and package_id >= 3910'''
     results = sql.execute(q)
 
     for item in results:
@@ -271,57 +473,62 @@ def get_fix_commits():
 
         q = '''select *
             from advisory_references
-            where advisory_id = %s;'''
+            where advisory_id = %s
+            and url not in 
+            (select url from processed_reference_url);'''
         results = sql.execute(q,(advisory_id))
 
         commits = []
         for item in results:
+            #TODO: fix commit may has commits from other repositories
             if 'commit' in item['name'].lower() or 'commit' in item['url'].lower():
-                sha = parse_sha_from_commit_reference(item['name'], item['url'])
-                if sha:
-                    if manualcheckup in sha:
+                shas = parse_sha_from_commit_reference(item['url'])
+                if shas:
+                    if manualcheckup in shas:
                         print(item['url'])
                         logging.info(sha)
                         exit()
-                    commits.append(sha)
-                    if repo_url == norepo:
-                        repo_url = parse_repository_url_from_references(package_id, package, item['url'])
-                        logging.info(repo_url)
-                        #sql.execute('update package set repository_url=%s where id=%s',(repo_url,package_id))
-                        #sql.execute('insert into repository_inferred values(%s)',(package_id,))
+                    for sha in shas:
+                        commits.append((item['url'],sha))
+                    repo_url = process_repo(package_id, item['url'])
+                        
             if 'pull' in item['name'].lower() or 'PR' in item['name'] or '/pull/' in item['url'].lower():
-                sha = parse_sha_from_github_PR_reference(item['url'])
-                if sha:
-                    if manualcheckup in sha:
+                shas = parse_sha_from_github_PR_reference(item['url'])
+                if shas:
+                    if manualcheckup in shas:
                         print(item['url'])
                         logging.info(sha)
                         exit()
-                    commits.append(sha)
-                    if repo_url == norepo:
-                        repo_url = parse_repository_url_from_references(package_id, package, item['url'])
-                        logging.info(repo_url)
+                    for sha in shas:
+                        commits.append((item['url'],sha))
+                    repo_url = process_repo(package_id, item['url'])
+                
+            if 'compare' in item['url']:
+                shas = parse_sha_from_github_compares(item['url'])
+                if shas:
+                    if manualcheckup in shas:
+                        print(item['url'])
+                        logging.info(sha)
+                        exit()
+                    for sha in shas:
+                        commits.append((item['url'],sha))
+                    repo_url = process_repo(package_id, item['url'])
 
                             
-        # for sha in commits:
-        #     try:
-        #         sql.execute('insert into fix_commits values(%s,%s,%s,null,null)',(advisory_id, package_id, sha))
-        #     except sql.pymysql.IntegrityError as error:
-        #         if error.args[0] == sql.PYMYSQL_DUPLICATE_ERROR:
-        #             pass
-        #             #safely continue
-        #         else:
-        #             print(error)
-        #             exit()
-        
-    
-    #TODO: PR?
-    '''look for both github and pull and then extract the commits involved'''
-    ''' but some can be missed in the above way. check if name contain github pr as well and inspect the url'''
-    # if 'github' in url and 'pull' in url:
-    #     pass
-    # elif 'github' in name and 'PR' in name:
-    #     pass
-    print('hey I am done')
+        for (item['url'],sha) in commits:
+            try:
+                print(advisory_id, package_id, sha)
+                sql.execute('insert into fix_commits values(%s,%s,%s,null,null)',(advisory_id, package_id, sha))
+                sql.execute('insert into processed_reference_url values(%s,%s,%s)',(advisory_id,item['url'],sha))
+            except sql.pymysql.IntegrityError as error:
+                if error.args[0] == sql.PYMYSQL_DUPLICATE_ERROR:
+                    pass
+                    #safely continue
+                else:
+                    print(error)
+                    exit()
+
+    logging.info('FIX COMMIT PROCESSING DONE')
 
 def get_commit_of_release(repo, package_id, release):
     logging.info(release)
@@ -434,8 +641,11 @@ def analyze_change_complexity():
         # os.chdir(root_path + '/temp/')
         # os.system('rm -rf {}'.format(repo_name))
 
-
-
+def custime_fix_commits():
+    #insert into fix_commits values('SNYK-JS-APOLLOGATEWAY-174915', 1852,'8f7ffe43b05ab8200f805697c6005e4e0bca080a', null,null )
+    #insert into fix_commits values('SNYK-PHP-LIGHTSAMLLIGHTSAML-72139', 2335,'47cef07bb09779df15620799f3763d1b8d32307a',null, null)
+    #insert into fix_commits values('SNYK-PHP-TYPO3CMS-73594', 272,'f6e0f545401a1b039a54605dba2d7afa5a6477e2', null,null )
+    pass
 if __name__=='__main__':
     #analyze_change_complexity()
     get_fix_commits()
