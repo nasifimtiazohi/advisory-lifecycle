@@ -18,7 +18,14 @@ short_commits = 0
 import collections
 import githubapi
 
-
+repos_to_avoid = [
+            'https://github.com/rapid7/metasploit-framework',
+            'https://github.com/github/advisory-review',
+            'https://github.com/rubysec/ruby-advisory-db',
+            'https://salsa.debian.org/security-tracker-team/security-tracker',
+            'https://github.com/FriendsOfPHP/security-advisories',
+            'https://github.com/snyk/vulndb-internal'
+        ]
 
 bitbucket_urls = [
     #bitbucket repos are private and may be mercurial 
@@ -213,6 +220,9 @@ def parse_sha_from_github_PR_reference(url):
     if url in bitbucket_urls:
         return []
     assert url.startswith(prefix)
+    for avoid in repos_to_avoid:
+        if url.startswith(avoid):
+            return []
 
     redundunt_urls = [
         'https://github.com/josdejong/mathjs/issues/821',
@@ -226,6 +236,8 @@ def parse_sha_from_github_PR_reference(url):
         return ['4a68b068a1389c3f31ca587008a4afe53e3ced0b','91f8421947bce6c3a0ce602c95186f338adb5ad3']
     if url in redundunt_urls:
         return []
+    if url == 'https://github.com/deeplearning4j/deeplearning4j/pull/6630':
+        return []
     if 'pull' not in url and '/commit/' in url:
         #already heandled in commit case
         return []
@@ -233,6 +245,8 @@ def parse_sha_from_github_PR_reference(url):
         url = 'https://github.com/node-modules/charset/pull/11'
     if url == 'https://github.com/openshift/origin/issues/3951':
         url = 'https://github.com/openshift/origin/pull/10830'
+    if url == 'https://github.com/ask/celery/pull/544':
+        url = 'https://github.com/celery/celery/pull/544/commits'
 
     url = url[len(prefix):]
     url = url.split('/')[:4]
@@ -299,7 +313,7 @@ def parse_repository_url_from_references(url):
     elif 'https://git.spip.net/spip/spip' in url:
         return 'https://github.com/spipremix/spip'
     elif 'opendev' in url:
-        return notgit #it's git but we're just ignoring
+        return manualcheckup
     else:
         print ('i am here fuck it', url)
         exit() #manually inspect
@@ -308,18 +322,12 @@ def process_repo(package_id,url):
         repo_url = parse_repository_url_from_references(url)
         current_value = sql.execute('select repository_url from package where id =%s',(package_id,))[0]['repository_url']
 
-        repos_to_avoid = [
-            'https://github.com/rapid7/metasploit-framework',
-            'https://github.com/github/advisory-review',
-            'https://github.com/rubysec/ruby-advisory-db',
-            'https://salsa.debian.org/security-tracker-team/security-tracker',
-            'https://github.com/FriendsOfPHP/security-advisories',
-            'https://github.com/snyk/vulndb-internal'
-        ]
         if repo_url in repos_to_avoid:
             return current_value
+        
+        if repo_url == notgit or repo_url == manualcheckup:
+                return current_value
 
-        print(current_value, repo_url)
         if current_value == norepo:
             sql.execute('update package set repository_url=%s where id=%s',(repo_url,package_id))
             sql.execute('insert into repository_inferred values(%s)',(package_id,))
@@ -335,10 +343,10 @@ def process_repo(package_id,url):
             if repo_url in archived_repos:
                 return current_value
             
-            ignore_packages = [67, 73, 163, 188, 209, 210, 242, 248, 249, 271, 272, 307, 478,480,491,531,602,706,778,844,1226,1329,2924, 3203,3462,3622,
+            ignore_packages = [288, 289, 67, 73, 163, 188, 209, 210, 242, 248, 249, 271, 272, 307, 478,480,491,531,602,706,778,844,1226,1329,2924,      3203,            3462,               3622, 3201, 3305, 3891, 
                     562, 563, 1180, 843, 875, 1192, 1193, 1243, 1267, 1314, 1319, 1332, 1390, 1391, 1506, 3742, 3889, 3895,
                     1585, 1587, 1707, 1708, 1738, 1739, 1740, 1742, 1778, 1852, 1913, 1970, 1993, 2016, 2062, 2335, 2357, 2534, 2542, 2622, 
-                    2684, 2848, 3086
+                    2684, 2848, 3086, 2905
             ]
             if package_id in ignore_packages:
                 return current_value
@@ -359,8 +367,13 @@ def process_repo(package_id,url):
             if current_value != repo_url:
                 item = sql.execute('select * from package where id =%s',(package_id,))[0]
                 package_name, ecosystem = item['name'], item['ecosystem']
+                if 'cefsharp' in package_name and 'cefsharp' in current_value:
+                    return current_value
+                if package_name in current_value and 'github' in current_value:
+                    return current_value
                 if 'fisheye.hudson-ci' in current_value:
                     sql.execute('update package set repository_url=%s where id=%s',(repo_url,package_id))
+                    sql.execute('insert into repository_inferred values(%s)',(package_id,))
                     return repo_url
                 if (package_name=='com.sksamuel.diff:diff' and repo_url=='https://github.com/kpdecker/jsdiff') \
                     or (package_name=='yiisoft/yii2' and repo_url == 'https://github.com/yiisoft/yii2') \
@@ -383,7 +396,9 @@ def process_repo(package_id,url):
                     or (package_name == 'org.jruby:jruby' and repo_url == 'https://github.com/jruby/jruby') \
                     or (package_name=='org.apache.maven.shared:maven-shared-utils' and repo_url == 'https://github.com/apache/maven-shared-utils') \
                     or (package_name == 'com.github.noraui:noraui' and repo_url == 'https://github.com/NoraUi/NoraUi') \
-                    or (package_name == 'com.zeroc:icegrid' and repo_url == 'https://github.com/zeroc-ice/ice'):
+                    or (package_name == 'com.zeroc:icegrid' and repo_url == 'https://github.com/zeroc-ice/ice') \
+                    or (package_name.endswith('tinymce') and repo_url=='https://github.com/tinymce/tinymce') \
+                    or (package_name == 'org.webjars.bower:jquery' and repo_url=='https://github.com/jquery/jquery'):
                     sql.execute('update package set repository_url=%s where id=%s',(repo_url,package_id))
                     return repo_url
                 if current_value.endswith(package_name) or current_value.endswith(package_name.split('/')[-1]):
@@ -393,9 +408,7 @@ def process_repo(package_id,url):
                     return current_value
                 if ecosystem=='Composer' and repo_url.endswith(package_name):
                     sql.execute('update package set repository_url=%s where id=%s',(repo_url,package_id))
-                    return repo_url
-                if package_name.endswith('tinymce') and repo_url=='https://github.com/tinymce/tinymce':
-                    sql.execute('update package set repository_url=%s where id=%s',(repo_url,package_id))
+                    sql.execute('insert into repository_inferred values(%s)',(package_id,))
                     return repo_url
                 #check redirection
                 if requests.get(current_value).url == repo_url:
@@ -416,6 +429,7 @@ def process_repo(package_id,url):
                     current_value = current_value[:current_value.find('.git')]
                     if repo_url.split('/')[-1] == current_value:
                         sql.execute('update package set repository_url=%s where id=%s',(repo_url,package_id))
+                        package_name.endswith('tinymce') and repo_url=='https://github.com/tinymce/tinymce'
                         return repo_url
                 #check git-wip-us repo
                 s='https://git-wip-us.apache.org/repos/asf?p='
@@ -425,11 +439,15 @@ def process_repo(package_id,url):
                     current_value = current_value[:current_value.find('.git')]
                     if repo_url.split('/')[-1] == current_value:
                         sql.execute('update package set repository_url=%s where id=%s',(repo_url,package_id))
+                        package_name.endswith('tinymce') and repo_url=='https://github.com/tinymce/tinymce'
                         return repo_url
                 if current_value == 'http://java.net/projects/mojarra/sources':
                     if repo_url == 'https://github.com/eclipse-ee4j/mojarra':
                         sql.execute('update package set repository_url=%s where id=%s',(repo_url,package_id))
+                        package_name.endswith('tinymce') and repo_url=='https://github.com/tinymce/tinymce'
                         return repo_url
+                if package_name.lower().endswith('datatables') and current_value.lower().endswith('datatables'):
+                    return current_value
                 if current_value.startswith(repo_url):
                     s='/tree/master'
                     if current_value.endswith(s) and current_value[:current_value.find(s)]==repo_url:
@@ -445,14 +463,7 @@ def process_repo(package_id,url):
                     if parts[-2] == 'tree' and parts[-1].startswith('v'):
                         sql.execute('update package set repository_url=%s where id=%s',(repo_url,package_id))
                         return repo_url
-
-                # if current_value.startswith(repo_url) and current_value.split('/')[-2] == 'tree':
-                #     #current value maps to a branch
-                #     if package_name not in current_value.split('/')[-1]:
-                #         sql.execute('update package set repository_url=%s where id=%s',(repo_url,package_id))
-                #         return repo_url
-                
-
+    
             print(current_value, repo_url)
             assert current_value == repo_url
 
@@ -463,8 +474,7 @@ def get_fix_commits():
         from advisory a
         join fixing_releases fr on a.id = fr.advisory_id
         join package p on a.package_id = p.id
-        where advisory_id='SNYK-PYTHON-SALT-42125'
-        -- where repository_url is not null'''
+        where ecosystem != 'cocoapods' '''
     results = sql.execute(q)
 
     for item in results:
@@ -473,14 +483,16 @@ def get_fix_commits():
 
         q = '''select *
             from advisory_references
-            where advisory_id = %s
-            and url not in 
-            (select url from processed_reference_url);'''
+            where advisory_id = %s'''
+            # and concat(advisory_id, url) not in
+            #     (select concat(advisory_id, url)
+            #         from processed_reference_url)'''
         results = sql.execute(q,(advisory_id))
 
         commits = []
         for item in results:
-            #TODO: fix commit may has commits from other repositories
+            # fix commit may has commits from other repositories, when we check validity of the git commit, 
+            # we will find that the url it comes from is different than the repository url
             if 'commit' in item['name'].lower() or 'commit' in item['url'].lower():
                 shas = parse_sha_from_commit_reference(item['url'])
                 if shas:
@@ -528,6 +540,7 @@ def get_fix_commits():
                     print(error)
                     exit()
 
+    custom_fix_commits()
     logging.info('FIX COMMIT PROCESSING DONE')
 
 def clean_Repo():
@@ -547,13 +560,22 @@ def clean_Repo():
         url = 'https://' + url
         sql.execute('update package set repository_url = %s where id = %s',(url,id))
 
-def custime_fix_commits():
-    '''
-    insert into fix_commits values('SNYK-JS-APOLLOGATEWAY-174915', 1852,'8f7ffe43b05ab8200f805697c6005e4e0bca080a', null,null )
-    insert into fix_commits values('SNYK-PHP-LIGHTSAMLLIGHTSAML-72139', 2335,'47cef07bb09779df15620799f3763d1b8d32307a',null, null)
-    insert into fix_commits values('SNYK-PHP-TYPO3CMS-73594', 272,'f6e0f545401a1b039a54605dba2d7afa5a6477e2', null,null )
-    '''
-    pass
+def custom_fix_commits():
+    custome_queries = [
+                "insert into fix_commits values('SNYK-JS-APOLLOGATEWAY-174915', 1852,'8f7ffe43b05ab8200f805697c6005e4e0bca080a', null,null )",
+                "insert into fix_commits values('SNYK-PHP-LIGHTSAMLLIGHTSAML-72139', 2335,'47cef07bb09779df15620799f3763d1b8d32307a',null, null)",
+                "insert into fix_commits values('SNYK-PHP-TYPO3CMS-73594', 272,'f6e0f545401a1b039a54605dba2d7afa5a6477e2', null,null )"
+            ]
+    for q in custome_queries:
+        try:
+            sql.execute(q)
+        except sql.pymysql.IntegrityError as error:
+                if error.args[0] == sql.PYMYSQL_DUPLICATE_ERROR:
+                    pass
+                    #safely continue
+                else:
+                    print(error)
+                    exit()
 
 if __name__=='__main__':
     #analyze_change_complexity()
