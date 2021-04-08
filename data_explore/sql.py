@@ -93,7 +93,7 @@ def update_df(table, df, updateColumns):
     totalUpdates = 0 #keep track fof total affected updates
 
     def update(row):
-        nonlocal cols, primaryKeys,q, totalUpdates
+        nonlocal cols, primaryKeys, q, totalUpdates
         args=[]
         for col in cols:
             if pd.isna(row[col]):
