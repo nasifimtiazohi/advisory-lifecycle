@@ -337,8 +337,8 @@ def process_repo(package_id,url):
             
             ignore_packages = [67, 73, 163, 188, 209, 210, 242, 248, 249, 271, 272, 307, 478,480,491,531,602,706,778,844,1226,1329,2924, 3203,3462,3622,
                     562, 563, 1180, 843, 875, 1192, 1193, 1243, 1267, 1314, 1319, 1332, 1390, 1391, 1506, 3742, 3889, 3895,
-                    1585, 1587, 1707, 1708, 1738, 1739, 1740, 1742, 1778, 1852, 1913, 1970, 1993, 2016, 2062, 2335, 2357, 2534, 2542, 2622,
-                    2684, 2848
+                    1585, 1587, 1707, 1708, 1738, 1739, 1740, 1742, 1778, 1852, 1913, 1970, 1993, 2016, 2062, 2335, 2357, 2534, 2542, 2622, 
+                    2684, 2848, 3086
             ]
             if package_id in ignore_packages:
                 return current_value
@@ -463,8 +463,7 @@ def get_fix_commits():
         from advisory a
         join fixing_releases fr on a.id = fr.advisory_id
         join package p on a.package_id = p.id
-        where repository_url is not null
-        -- and package_id >= 3910'''
+        where repository_url is not null'''
     results = sql.execute(q)
 
     for item in results:
@@ -518,8 +517,8 @@ def get_fix_commits():
         for (item['url'],sha) in commits:
             try:
                 print(advisory_id, package_id, sha)
-                sql.execute('insert into fix_commits values(%s,%s,%s,null,null)',(advisory_id, package_id, sha))
                 sql.execute('insert into processed_reference_url values(%s,%s,%s)',(advisory_id,item['url'],sha))
+                sql.execute('insert into fix_commits values(%s,%s,%s,null,null)',(advisory_id, package_id, sha))
             except sql.pymysql.IntegrityError as error:
                 if error.args[0] == sql.PYMYSQL_DUPLICATE_ERROR:
                     pass
@@ -641,6 +640,24 @@ def analyze_change_complexity():
         # os.chdir(root_path + '/temp/')
         # os.system('rm -rf {}'.format(repo_name))
 
+
+def clean_Repo():
+    q = '''select * from package
+    where repository_url not like %s
+    and repository_url not like 'no repository listed'
+    and repository_url != 'not git';'''
+    results = sql.execute(q,('http%',))
+
+    for item in results:
+        url, id = item['repository_url'], item['id']
+        s = 'github.com'
+        assert s in url
+        url = url[url.find(s):]
+        if url.endswith('.git'):
+            url = url[:-len('.git')]
+        url = 'https://' + url
+        sql.execute('update package set repository_url = %s where id = %s',(url,id))
+
 def custime_fix_commits():
     #insert into fix_commits values('SNYK-JS-APOLLOGATEWAY-174915', 1852,'8f7ffe43b05ab8200f805697c6005e4e0bca080a', null,null )
     #insert into fix_commits values('SNYK-PHP-LIGHTSAMLLIGHTSAML-72139', 2335,'47cef07bb09779df15620799f3763d1b8d32307a',null, null)
@@ -648,5 +665,5 @@ def custime_fix_commits():
     pass
 if __name__=='__main__':
     #analyze_change_complexity()
-    get_fix_commits()
+    clean_Repo()
 
