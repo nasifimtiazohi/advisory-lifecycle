@@ -2,31 +2,67 @@ import common, sql
 import os, json
 import subprocess, shlex
 from dateutil import parser as dt
+import logging, coloredlogs
+coloredlogs.install()
+from pathlib import Path
+root_path = os.getcwd()
+data_path = root_path +'/temp'
 
-def clone_git_repository(url):
-    url = sanitize_repo_url(url)
+def is_git_repository(path):
+    #do ls -a, check if .git is there
+    return True
+
+def clone_git_repository(package_id, repo_url):
+    url = sanitize_repo_url(repo_url)
     repo_name = url.split('/')[-1]
+    
+    repo_path = data_path + '/{}/{}'.format(package_id,repo_name) #already exists or to be created here
+    if Path(repo_path).is_dir() and is_git_repository(repo_path):
+        return repo_path
+    
 
-    os.chdir(repo_path)
-    os.system('git clone {}.git > clone.log 2>&1'.format(url))
-
+    os.chdir(data_path)
     try:
-        repo = Repo(root_path + '/temp/' + repo_name)
-        return repo
-    except:
+        os.mkdir(str(package_id))
+    except FileExistsError:
+        Path('./{}'.format(package_id)).rmdir()
+        os.mkdir(str(package_id))
+    os.chdir('./{}'.format(package_id))
+    os.system('git clone {}.git > {}_clone.log 2>&1'.format(url, repo_name))
+
+    if Path(repo_path).is_dir() and is_git_repository(repo_path):
+        return repo_path
+    else:
         print("invalid url:")
         logging.info(url)
         exit()
-
+        
 def sanitize_repo_url(repo_url):
     http = 'https://'
     assert repo_url.startswith(http)
     s = repo_url[len(http):]
     
     #below rule covers github, gitlab, bitbucket, foocode, eday, qt
+    sources = ['github', 'gitlab', 'bitbucket', 'foocode', 'eday', 'q']
+    flag = False
+    for source in sources:
+        if source in s:
+            flag = True
+    assert flag
+
     s = http + '/'.join(s.split('/')[:3])
 
     return s
+
+def check_commit_validity(repo_path, sha):
+    os.chdir(repo_path)
+    assert len(sha)==39 or len(sha) == 40
+    try:
+        output = subprocess.check_output(shlex.split('git cat-file -t {}'.format(sha)), 
+                    stderr = subprocess.STDOUT, encoding="437").strip()
+        return output == 'commit'
+    except:
+        return False
 
 def analyze_change_complexity():
     q='''select *
@@ -112,7 +148,20 @@ def get_commit_of_release(repo, package_id, release):
     return tag.commit
 
 def get_commit_date():
-    pass
+    q = '''select *
+        from fix_commits fc
+        join package p on fc.package_id = p.id
+        where ecosystem = 'npm';'''
+    results = sql.execute(q)
+    for item in results:
+        package_id, repo_url, sha = item['package_id'], item['repository_url'], item['commit_sha']
+        print(package_id, repo_url, sha)
+        #TODO: check if short commit, then parse full commit separately
+        repo_path = clone_git_repository(package_id, repo_url)
+        print(check_commit_validity(repo_path, sha))
+        break
 
 
 
+if __name__=='__main__':
+    get_commit_date()

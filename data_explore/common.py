@@ -9,8 +9,6 @@ from dateutil import parser as dt
 import requests, json
 import subprocess, shlex
 coloredlogs.install()
-root_path = os.getcwd()
-repo_path = root_path +'/temp'
 norepo = 'no repository listed'
 manualcheckup = 'manual checkup needed'
 notgit = 'not git'
