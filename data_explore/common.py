@@ -343,7 +343,7 @@ def process_repo(package_id,url):
             
             ignore_packages = [288, 289, 67, 73, 163, 188, 209, 210, 242, 248, 249, 271, 272, 307, 478,480,491,531,602,706,778,844,1226,1329,2924,      3203,            3462,               3622, 3201, 3305, 3891, 
                     562, 563, 1180, 843, 875, 1192, 1193, 1243, 1267, 1314, 1319, 1332, 1390, 1391, 1506, 3742, 3889, 3895,
-                    1585, 1587, 1707, 1708, 1738, 1739, 1740, 1742, 1778, 1852, 1913, 1970, 1993, 2016, 2062, 2335, 2357, 2534, 2542, 2622, 
+                    1585, 1587, 1707, 1708, 1738, 1739, 1740, 1742, 1778, 1852, 1913, 1970, 1993, 2016, 2062, 2335, 2357, 2534, 2542, 2622, 3157, 3164,
                     2684, 2848, 3086, 2905
             ]
             if package_id in ignore_packages:
@@ -482,11 +482,8 @@ def get_fix_commits():
         q = '''select *
             from advisory_references
             where advisory_id = %s'''
-            # and concat(advisory_id, url) not in
-            #     (select concat(advisory_id, url)
-            #         from processed_reference_url)'''
         results = sql.execute(q,(advisory_id))
-
+        
         commits = []
         for item in results:
             # fix commit may has commits from other repositories, when we check validity of the git commit, 
@@ -523,13 +520,11 @@ def get_fix_commits():
                     for sha in shas:
                         commits.append((item['url'],sha))
                     repo_url = process_repo(package_id, item['url'])
-
-                            
+               
         for (item['url'],sha) in commits:
             try:
-                print(advisory_id, package_id, sha)
-                sql.execute('insert into processed_reference_url values(%s,%s,%s)',(advisory_id,item['url'],sha))
                 sql.execute('insert into fix_commits values(%s,%s,%s,null,null)',(advisory_id, package_id, sha))
+                sql.execute('insert into processed_reference_url values(%s,%s,%s)',(advisory_id,item['url'],sha))
             except sql.pymysql.IntegrityError as error:
                 if error.args[0] == sql.PYMYSQL_DUPLICATE_ERROR:
                     pass
@@ -559,12 +554,13 @@ def clean_Repo():
         sql.execute('update package set repository_url = %s where id = %s',(url,id))
 
 def custom_fix_commits():
-    custome_queries = [
+    custom_queries = [
                 "insert into fix_commits values('SNYK-JS-APOLLOGATEWAY-174915', 1852,'8f7ffe43b05ab8200f805697c6005e4e0bca080a', null,null )",
                 "insert into fix_commits values('SNYK-PHP-LIGHTSAMLLIGHTSAML-72139', 2335,'47cef07bb09779df15620799f3763d1b8d32307a',null, null)",
                 "insert into fix_commits values('SNYK-PHP-TYPO3CMS-73594', 272,'f6e0f545401a1b039a54605dba2d7afa5a6477e2', null,null )"
             ]
-    for q in custome_queries:
+    print('inserting custom fix commmits: ', len(custom_queries))
+    for q in custom_queries:
         try:
             sql.execute(q)
         except sql.pymysql.IntegrityError as error:

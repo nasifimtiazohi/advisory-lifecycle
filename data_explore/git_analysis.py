@@ -1,4 +1,5 @@
-import common, sql
+import common, sql, githubapi
+import requests, json
 import os, json
 import subprocess, shlex
 from dateutil import parser as dt
@@ -6,11 +7,16 @@ import logging, coloredlogs
 coloredlogs.install()
 from pathlib import Path
 root_path = os.getcwd()
+import common
+import difflib
+import re
 data_path = root_path +'/temp'
+invalid_git_remote = 'invalid remote git url'
 
 def is_git_repository(path):
-    #do ls -a, check if .git is there
-    return True
+    os.chdir(path)
+    files = subprocess.check_output(shlex.split('ls -a'), stderr = subprocess.STDOUT, encoding = '437').split()
+    return '.git' in files
 
 def clone_git_repository(package_id, repo_url):
     url = sanitize_repo_url(repo_url)
@@ -25,7 +31,7 @@ def clone_git_repository(package_id, repo_url):
     try:
         os.mkdir(str(package_id))
     except FileExistsError:
-        Path('./{}'.format(package_id)).rmdir()
+        os.system('rm -rf ./{}'.format(package_id))
         os.mkdir(str(package_id))
     os.chdir('./{}'.format(package_id))
     os.system('git clone {}.git > {}_clone.log 2>&1'.format(url, repo_name))
@@ -35,7 +41,7 @@ def clone_git_repository(package_id, repo_url):
     else:
         print("invalid url:")
         logging.info(url)
-        exit()
+        return invalid_git_remote
         
 def sanitize_repo_url(repo_url):
     http = 'https://'
@@ -93,18 +99,17 @@ def analyze_change_complexity():
         # os.chdir(root_path + '/temp/')
         # os.system('rm -rf {}'.format(repo_name))
 
-def update_fix_commit_info(repo, package_id):
-    results = sql.execute('select * from fix_commits where package_id=%s',(package_id))
-    for item in results:
-        sha = item['commit_sha']
-        try:
-            commit_date = dt.parse(repo.git.show("--no-patch --no-notes --pretty=%cd {}".format(sha).split()))
-            sql.execute('update fix_commits set commit_date=%s where package_id=%s and commit_sha=%s',(commit_date,package_id,sha))
-        except:
-            #bad commit object, inspect why
-            logginf.info('bad commit object')
-            print(sha, package_id)
-            exit()
+def get_commit_date_from_local_repo(path, sha):
+    os.chdir(path)
+    commit_date = dt.parse(subprocess.check_output(shlex.split("git show --no-patch --no-notes --pretty=%cd {}".format(sha)),
+                            stderr= subprocess.STDOUT, encoding = '437'))
+    return commit_date
+
+def get_commit_message_from_local_repo(repo_path,sha):
+    os.chdir(repo_path)
+    msg =  subprocess.check_output(shlex.split("git log --format=%B -n 1 {}".format(sha)),
+                            stderr= subprocess.STDOUT, encoding = '437')
+    return msg.strip()
 
 def get_commit_of_release(repo, package_id, release):
     logging.info(release)
@@ -147,21 +152,118 @@ def get_commit_of_release(repo, package_id, release):
 
     return tag.commit
 
-def get_commit_date():
+def get_full_sha_for_short_shas(repo_path, sha):
+    os.chdir(repo_path)
+    fullsha= subprocess.check_output(shlex.split("git rev-parse {}".format(sha)),
+                            stderr= subprocess.STDOUT, encoding = '437')
+    fullsha = fullsha.strip()
+    assert len(fullsha) == 39 or len(fullsha) == 40
+    return fullsha
+
+def process_fix_commit_dates():
+    def get_referenced_urls(advisory_id, sha):
+        q='''select url from processed_reference_url
+                where advisory_id=%s
+                and sha = %s;'''
+        results = sql.execute(q,(advisory_id,sha))
+        urls = set()
+        for item in results:
+            url = common.parse_repository_url_from_references(item['url'])
+            urls.add(url)
+        return urls
+    def is_repo_matched(advisory_id, sha, repo_url):
+        repo_url = sanitize_repo_url(repo_url)
+        reference_urls = get_referenced_urls(advisory_id, sha)
+        for url in reference_urls:
+            print(url, repo_url)
+            url = sanitize_repo_url(url)
+            if repo_url ==  url:
+                return True
+            if requests.get(url).url == repo_url or requests.get(repo_url).url == url:
+                return True
+        return False
+
     q = '''select *
-        from fix_commits fc
-        join package p on fc.package_id = p.id
-        where ecosystem = 'npm';'''
+            from fix_commits fc
+            join package p on fc.package_id = p.id
+            where ecosystem = 'npm'
+            and commit_date is null
+            and invalid is null;'''
     results = sql.execute(q)
+    c=0
     for item in results:
-        package_id, repo_url, sha = item['package_id'], item['repository_url'], item['commit_sha']
-        print(package_id, repo_url, sha)
-        #TODO: check if short commit, then parse full commit separately
+        advisory_id, package_id, repo_url, sha = item['advisory_id'], item['package_id'], item['repository_url'], item['commit_sha']
+        print(advisory_id, package_id, repo_url, sha)
         repo_path = clone_git_repository(package_id, repo_url)
-        print(check_commit_validity(repo_path, sha))
-        break
+        if repo_path == invalid_git_remote:
+            sql.execute('update fix_commits set invalid = %s where advisory_id =%s and package_id =%s and commit_sha = %s',(invalid_git_remote, advisory_id, package_id, sha ))
+            continue 
+        if sha.startswith('short commit: '):
+            if is_repo_matched(advisory_id, sha, repo_url):
+                original = sha
+                short_sha = sha[len('short commit: '):]
+                sha = get_full_sha_for_short_shas(repo_path, short_sha)
+                sql.execute('update fix_commits set commit_sha = %s where advisory_id =%s and commit_sha = %s',(sha, advisory_id, original))
+                sql.execute('update processed_reference_url set sha = %s where advisory_id =%s and sha = %s',(sha, advisory_id, original))
+                print('full sha from short',short_sha, sha)
+            else:
+                sql.execute('update fix_commits set invalid = %s where advisory_id =%s and package_id =%s and commit_sha = %s',('repo not matched', advisory_id, package_id, sha ))  
+                continue
+        valid_commit = check_commit_validity(repo_path, sha)
+        commit_date = None
+        if valid_commit:
+            if is_repo_matched(advisory_id, sha, repo_url):
+                commit_date = get_commit_date_from_local_repo(repo_path, sha) 
+            #hand checked custom
+            elif (repo_url == 'https://github.com/ckeditor/ckeditor5/tree/master/packages/ckeditor5-link' and sha == 'a23590ec1e4742f2483350af1332bd209c780e1a') \
+                or (repo_url == 'https://github.com/apollographql/federation/tree/master/gateway-js/' and sha == '8f7ffe43b05ab8200f805697c6005e4e0bca080a') \
+                    or sha == '47cef07bb09779df15620799f3763d1b8d32307a' or sha == 'f6e0f545401a1b039a54605dba2d7afa5a6477e2':
+                commit_date = get_commit_date_from_local_repo(repo_path, sha) 
+            else:
+                # check commit messages as a reliable heuristic
+                msg = get_commit_message_from_local_repo(repo_path,sha)
+                reference_urls = get_referenced_urls(advisory_id, sha)
+                flag = False 
+                for url in reference_urls:
+                    logging.info(url)
+                    if 'github' in url:
+                        repo_name = '/'.join(url.split('/')[-2:])
+                        endpoint='https://api.github.com/repos/{}/commits/{}'.format(repo_name,sha)
+                        commit = githubapi.rest_call(endpoint)
+                        assert 'commit' in commit.keys()
+                        reference_msg = commit['commit']['message'].strip()
+                        print('difference is: ', [li for li in difflib.ndiff(msg, reference_msg) if li[0] != ' '])
+                        if msg.replace('\r','') == reference_msg.replace('\r',''):
+                            flag=True
+                            break
+                if flag:
+                    commit_date = get_commit_date_from_local_repo(repo_path, sha)
+                else:
+                    print('here came, not sure about this case',)
+                    #check the custome queries
+                    exit()
+        else:
+            if is_repo_matched(advisory_id, sha, repo_url):
+                #https://docs.github.com/en/github/committing-changes-to-your-project/commit-exists-on-github-but-not-in-my-local-clone
+                url = sanitize_repo_url(repo_url)
+                repo_name = '/'.join(url.split('/')[-2:])
+                endpoint='https://api.github.com/repos/{}/commits/{}'.format(repo_name,sha)
+                commit = githubapi.rest_call(endpoint)
+                if 'commit' not in commit.keys():
+                    sql.execute('update fix_commits set invalid = %s where advisory_id =%s and package_id =%s and commit_sha = %s',('invalid github link', advisory_id, package_id, sha ))  
+                else:
+                    commit_date = dt.parse(commit['commit']['committer']['date'])
+            else:
+                sql.execute('update fix_commits set invalid = %s where advisory_id =%s and package_id =%s and commit_sha = %s',('repo not matched', advisory_id, package_id, sha ))  
+        if commit_date:
+            sql.execute('update fix_commits set commit_date = %s where advisory_id =%s and package_id =%s and commit_sha = %s',(commit_date, advisory_id, package_id, sha ))       
+    
+    logging.info('FIX COMMIT DATE PROCESSING DONE')
 
 
 
 if __name__=='__main__':
-    get_commit_date()
+    #print(is_git_repository('/Users/nasifimtiaz/repos/advisory-lifecycle/data_explore/temp'))
+    #print(get_commit_date_from_local_repo('/Users/nasifimtiaz/repos/advisory-lifecycle/data_explore/temp/salt','955d7304719b26ad6ab8dcff902f9692a919c280'))
+    process_fix_commit_dates()
+    
