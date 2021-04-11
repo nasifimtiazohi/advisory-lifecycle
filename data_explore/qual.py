@@ -1,22 +1,4 @@
 
-import csv
-
-with open('maveninfer.csv') as csv_file:
-    csv_reader = csv.reader(csv_file, delimiter=',')
-    line_count = 0
-    for row in csv_reader:
-        repo = row[-1]
-        project = repo.split('/')[-1]
-        if project not in row[2] and repo.split('/')[-2] not in row[2]:
-            if 'jenkins' in repo.split('/')[-2] and 'jenkins' in row[2]:
-                continue
-            print(repo.split('/')[-2])
-            print(','.join(row))
-            line_count += 1
-    print(f'Processed {line_count} lines.')
-
-
-
 
 
 
