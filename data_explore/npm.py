@@ -32,7 +32,9 @@ def get_release_publish_date(package, version):
     
     d = json.loads(lines)
     if version in d:
-        return dt.parse(d[version])
+        d =  dt.parse(d[version])
+        d = d.astimezone(dateutil.tz.tzutc())
+        return d
     else:
         return None
 
@@ -65,15 +67,13 @@ if __name__ == '__main__':
         id, repo = item['id'], get_repository_url(item['name'])
         sql.execute('update package set repository_url=%s where id = %s',(repo,id))
     
-    # get release info (publish date and prior release) for each fixing release
-    # packages = common.getPackagesToProcessRelease(ecosystem)
-    # for item in packages:
-    #     id, package, version = item['package_id'], item['package'], item['version']
-    #     publish_date = get_release_publish_date(package, version)
-    #     prior_release = get_prior_release(package, version)
-    #     sql.execute('insert into release_info values(%s,%s,%s,%s)',(id, version, publish_date, prior_release))
-    
-    # get commits for fixed advisories
+    #get release info (publish date and prior release) for each fixing release
+    packages = common.getPackagesToProcessRelease(ecosystem)
+    for item in packages:
+        id, package, version = item['package_id'], item['package'], item['version']
+        publish_date = get_release_publish_date(package, version)
+        prior_release = get_prior_release(package, version)
+        sql.execute('insert into release_info values(%s,%s,%s,%s)',(id, version, publish_date, prior_release))
     
 
     

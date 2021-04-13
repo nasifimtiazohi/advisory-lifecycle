@@ -8,6 +8,7 @@ coloredlogs.install()
 from pathlib import Path
 root_path = os.getcwd()
 import common
+import dateutil
 import difflib
 import re
 data_path = root_path +'/temp'
@@ -103,7 +104,15 @@ def get_commit_date_from_local_repo(path, sha):
     os.chdir(path)
     commit_date = dt.parse(subprocess.check_output(shlex.split("git show --no-patch --no-notes --pretty=%cd {}".format(sha)),
                             stderr= subprocess.STDOUT, encoding = '437'))
+    commit_date = commit_date.astimezone(dateutil.tz.tzutc())
     return commit_date
+
+def get_author_date_from_local_repo(path, sha):
+    os.chdir(path)
+    author_date = dt.parse(subprocess.check_output(shlex.split("git show --no-patch --no-notes --pretty=%ad {}".format(sha)),
+                            stderr= subprocess.STDOUT, encoding = '437'))
+    author_date = author_date.astimezone(dateutil.tz.tzutc())
+    return author_date
 
 def get_commit_message_from_local_repo(repo_path,sha):
     os.chdir(repo_path)
@@ -210,15 +219,15 @@ def process_fix_commit_dates():
                 sql.execute('update fix_commits set invalid = %s where advisory_id =%s and package_id =%s and commit_sha = %s',('repo not matched', advisory_id, package_id, sha ))  
                 continue
         valid_commit = check_commit_validity(repo_path, sha)
-        commit_date = None
+        commit_date = author_date = None
         if valid_commit:
             if is_repo_matched(advisory_id, sha, repo_url):
-                commit_date = get_commit_date_from_local_repo(repo_path, sha) 
+                commit_date, author_date = get_commit_date_from_local_repo(repo_path, sha), get_author_date_from_local_repo(repo_path,sha)
             #hand checked custom
             elif (repo_url == 'https://github.com/ckeditor/ckeditor5/tree/master/packages/ckeditor5-link' and sha == 'a23590ec1e4742f2483350af1332bd209c780e1a') \
                 or (repo_url == 'https://github.com/apollographql/federation/tree/master/gateway-js/' and sha == '8f7ffe43b05ab8200f805697c6005e4e0bca080a') \
                     or sha == '47cef07bb09779df15620799f3763d1b8d32307a' or sha == 'f6e0f545401a1b039a54605dba2d7afa5a6477e2':
-                commit_date = get_commit_date_from_local_repo(repo_path, sha) 
+                commit_date, author_date = get_commit_date_from_local_repo(repo_path, sha), get_author_date_from_local_repo(repo_path,sha) 
             else:
                 # check commit messages as a reliable heuristic
                 msg = get_commit_message_from_local_repo(repo_path,sha)
@@ -237,7 +246,7 @@ def process_fix_commit_dates():
                             flag=True
                             break
                 if flag:
-                    commit_date = get_commit_date_from_local_repo(repo_path, sha)
+                    commit_date, author_date = get_commit_date_from_local_repo(repo_path, sha), get_author_date_from_local_repo(repo_path,sha)
                 else:
                     print('here came, not sure about this case',)
                     #check the custome queries
@@ -252,11 +261,13 @@ def process_fix_commit_dates():
                 if 'commit' not in commit.keys():
                     sql.execute('update fix_commits set invalid = %s where advisory_id =%s and package_id =%s and commit_sha = %s',('invalid github link', advisory_id, package_id, sha ))  
                 else:
-                    commit_date = dt.parse(commit['commit']['committer']['date'])
+                    commit_date, author_date = dt.parse(commit['commit']['committer']['date']), dt.parse(commit['commit']['author']['date'])
+                    commit_date, author_date = commit_date.astimezone(dateutil.tz.tzutc()), author_date.astimezone(dateutil.tz.tzutc())
             else:
                 sql.execute('update fix_commits set invalid = %s where advisory_id =%s and package_id =%s and commit_sha = %s',('repo not matched', advisory_id, package_id, sha ))  
         if commit_date:
-            sql.execute('update fix_commits set commit_date = %s where advisory_id =%s and package_id =%s and commit_sha = %s',(commit_date, advisory_id, package_id, sha ))       
+            assert author_date
+            sql.execute('update fix_commits set commit_date = %s, author_date = %s where advisory_id =%s and package_id =%s and commit_sha = %s',(commit_date, author_date, advisory_id, package_id, sha ))       
     
     logging.info('FIX COMMIT DATE PROCESSING DONE')
 
