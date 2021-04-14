@@ -1,4 +1,4 @@
-import common, sql, githubapi
+import common, sql, githubapi, diff
 import requests, json
 import os, json
 import subprocess, shlex
@@ -248,7 +248,7 @@ def process_fix_commit_dates():
     
     logging.info('FIX COMMIT DATE PROCESSING DONE')
 
-def parse_release_type(release, prior_release):
+def parse_release_type(release):
     parts = release.split('.')
 
     if '-' in release:
@@ -307,6 +307,61 @@ def get_release_commits():
                     exit()        
 
 
+def analyze_change_complexity():
+    def get_commit_head(package_id, version):
+        q='''select *
+            from release_commit
+            where package_id =%s and version = %s'''
+        results = sql.execute(q,(package_id, version))
+        assert len(results) == 1
+        if results:
+            return results[0]['commit']
+        else:
+            return None
+
+
+
+    q = '''select advisory_id, p.id as package_id, repository_url, ri.id as release_id, ri.version as fixing_release, prior_release
+            from advisory a
+            join package p on a.package_id = p.id
+            join fixing_releases fr on a.id = fr.advisory_id
+            join release_info ri on p.id = ri.package_id and ri.version = fr.version
+            where ri.prior_release != %s;'''
+    results = sql.execute(q,(common.manualcheckup,))
+
+    c = 0 
+    for item in results:
+        l = []
+        for k in item.keys():
+            l.append(item[k])
+        advisory_id, package_id, repo_url, release_id, fixing_release, prior_release = l
+        print(advisory_id, package_id, repo_url, release_id, fixing_release, prior_release)
+        repo_path = clone_git_repository(package_id, repo_url)
+        if repo_path == invalid_git_remote:
+            continue
+
+        fixing_relese_commit = get_commit_head(package_id, fixing_release)
+        prior_release_commit = get_commit_head(package_id, prior_release)
+
+        if not fixing_relese_commit or not prior_release_commit:
+            continue
+        
+        release_type = parse_release_type(fixing_release)
+        commits, files, loc, contributors =  diff.change_complexity(repo_path, prior_release_commit, fixing_relese_commit)
+
+        print(advisory_id, release_id, commits, files, loc, contributors, None, release_type)
+        sql.execute('insert into change_complexity values(%s,%s,%s,%s,%s,%s,%s,%s)',(advisory_id, release_id, commits, files, loc, contributors, None, release_type))
+
+    
+        
+
+        
+        
+       
+
+
+
 if __name__=='__main__':
     #process_fix_commit_dates()
-    get_release_commits()
+    #get_release_commits()
+    analyze_change_complexity()
