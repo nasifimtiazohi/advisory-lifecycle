@@ -275,10 +275,12 @@ def get_release_commits():
         join package p on a.package_id = p.id
         where repository_url is not null
         and repository_url != %s
-        and commit_sha is null'''
+        and (concat(a.package_id, ri.version) not in
+        (select concat(package_id, version) from release_commit)
+        or concat(a.package_id, ri.prior_release) not in
+        (select concat(package_id, version) from release_commit))'''
     results = sql.execute(q,(common.norepo,))
     
-    t = 0
     for item in results:
         advisory_id, repo_url, package_id, package_name, release, prior_release = item['advisory_id'], item['repository_url'], item['package_id'], item['name'], item['ri.version'], item['prior_release']
         repo_path = clone_git_repository(package_id, repo_url)
@@ -289,8 +291,21 @@ def get_release_commits():
         repo = Repo(repo_path)
         assert not repo.bare 
 
-        cur_commit, prior_commit = get_commit_of_release(repo, package_name, release), get_commit_of_release(repo, package_name, prior_release)
-        sql.execute('update release_info set commit_sha=%s, prior_release_commit_sha=%s where package_id=%s and version = %s',(cur_commit, prior_commit, package_id, release))
+        releases = [release, prior_release]
+        for release in releases:
+            if release == common.manualcheckup:
+                continue
+            head_commit = get_commit_of_release(repo, package_name, release)
+            try:
+                sql.execute('insert into release_commit values(%s,%s,%s)',(package_id, release, head_commit))
+            except sql.pymysql.IntegrityError as error:
+                if error.args[0] == sql.PYMYSQL_DUPLICATE_ERROR:
+                    pass
+                    #safely continue
+                else:
+                    print(error)
+                    exit()        
+
 
 if __name__=='__main__':
     #process_fix_commit_dates()

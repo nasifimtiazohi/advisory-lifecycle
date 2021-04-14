@@ -74,7 +74,7 @@ if __name__ == '__main__':
         id, package, version = item['package_id'], item['package'], item['version']
         publish_date = get_release_publish_date(package, version)
         prior_release = get_prior_release(package, version)
-        sql.execute('insert into release_info values(null,%s,%s,%s,%s,null,null,null,null)',(id, version, publish_date, prior_release))
+        sql.execute('insert into release_info values(null,%s,%s,%s,%s)',(id, version, publish_date, prior_release))
     
 
     
