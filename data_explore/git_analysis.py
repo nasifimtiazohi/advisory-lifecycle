@@ -4,6 +4,7 @@ import os, json
 import subprocess, shlex
 from dateutil import parser as dt
 import logging, coloredlogs
+from git import Repo
 coloredlogs.install()
 from pathlib import Path
 root_path = os.getcwd()
@@ -71,35 +72,6 @@ def check_commit_validity(repo_path, sha):
     except:
         return False
 
-def analyze_change_complexity():
-    q='''select *
-            from advisory a
-            join fixing_releases fr on a.id = fr.advisory_id
-            join release_info ri on fr.version = ri.version and ri.package_id=a.package_id
-            join package p on a.package_id = p.id
-            where repository_url is not null
-            and repository_url != %s;'''
-    results = sql.execute(q,(norepo,))
-    
-    t = 0
-    for item in results:
-        repo_url, package_id, release, prior_release = item['repository_url'], item['package_id'], item['ri.version'], item['prior_release']
-        print(repo_url, package_id, release, prior_release)
-        repo = clone_git_repository(repo_url)
-
-        #update commit dates in fix commits
-        update_fix_commit_info(repo, package_id)
-
-        cur_commit, prior_commit = get_commit_of_release(repo, package_id, release), get_commit_of_release(repo, package_id, prior_release)
-        print(cur_commit, prior_commit)
-        #TODO update db and get diff between the two and analyze complexity 
-
-        t+=1
-        if t>=5:
-            break
-        # os.chdir(root_path + '/temp/')
-        # os.system('rm -rf {}'.format(repo_name))
-
 def get_commit_date_from_local_repo(path, sha):
     os.chdir(path)
     commit_date = dt.parse(subprocess.check_output(shlex.split("git show --no-patch --no-notes --pretty=%cd {}".format(sha)),
@@ -120,10 +92,10 @@ def get_commit_message_from_local_repo(repo_path,sha):
                             stderr= subprocess.STDOUT, encoding = '437')
     return msg.strip()
 
-def get_commit_of_release(repo, package_id, release):
-    logging.info(release)
+def get_commit_of_release(repo, package, release):
     '''repo is a gitpython object, while version is a string taken from ecosystem data'''
-    # get closest matching tag, go to that commit and ensure the dependency file updated to that version in recent commits, at least for npm
+    release_tag = None #store return value
+    
     tags = repo.tags
     candidate_tags = []
     for tag in tags:
@@ -131,35 +103,40 @@ def get_commit_of_release(repo, package_id, release):
             candidate_tags.append(tag)
     
     if not candidate_tags:
-        return None
+        for tag in tags:
+            if release.replace('.','-') in tag.path or release.replace('.','_') in tag.path:
+                logging.info(release)
+                print(tag.path)
+                exit()   
     elif len(candidate_tags) == 1:
-        tag = candidate_tags[0]
-    else:
-        logging.info('too many tags')
-        print(candidate_tags)
-        package = sql.execute('select name from package where id=%s',(package_id,))[0]['name']
+        release_tag = candidate_tags[0]
+    elif len(candidate_tags) > 1:
         new_candidates = []
         for tag in candidate_tags:
             if package in tag.path:
                 new_candidates.append(tag)
         candidate_tags = new_candidates
     
-    if not candidate_tags:
-        return None
-    elif len(candidate_tags) == 1:
-        tag = candidate_tags[0]
-    else:
-        logging.info('still too many tags')
-        print(candidate_tags)
+    
+    if len(candidate_tags) == 1:
+        release_tag = candidate_tags[0]
+    elif len(candidate_tags) > 1:
+        new_candidates = []
+        for tag in candidate_tags:
+            if tag.path.endswith(release):
+                new_candidates.append(tag)
+        candidate_tags = new_candidates
+    
+    if len(candidate_tags) == 1:
+        release_tag = candidate_tags[0]
+    elif len(candidate_tags) > 1:
+        logging.info(candidate_tags)
         exit()
 
-    try:
-        #tag object is not guaranteed to have a message attribute
-        sql.execute('update release_info set tage_message=%s where package_id=%s',(tag.message,package_id))
-    except:
-        pass
-
-    return tag.commit
+    if release_tag:
+        print(release_tag.path, release)
+        return release_tag.commit
+    return None
 
 def get_full_sha_for_short_shas(repo_path, sha):
     os.chdir(repo_path)
@@ -271,10 +248,50 @@ def process_fix_commit_dates():
     
     logging.info('FIX COMMIT DATE PROCESSING DONE')
 
+def parse_release_type(release, prior_release):
+    parts = release.split('.')
 
+    if '-' in release:
+            return 'prerelease'
+
+    if len(parts) > 3:
+        logging.info(release)
+        exit()
+    
+    if len(parts) == 3 and int(parts[-1]) > 0:
+        return 'patch'
+    
+    if len(parts) > 1 and int(parts[1]) > 0:
+        return 'minor'
+    
+    return 'major'
+
+
+def get_release_commits():
+    q='''select *
+        from advisory a
+        join fixing_releases fr on a.id = fr.advisory_id
+        join release_info ri on fr.version = ri.version and ri.package_id=a.package_id
+        join package p on a.package_id = p.id
+        where repository_url is not null
+        and repository_url != %s
+        and commit_sha is null'''
+    results = sql.execute(q,(common.norepo,))
+    
+    t = 0
+    for item in results:
+        advisory_id, repo_url, package_id, package_name, release, prior_release = item['advisory_id'], item['repository_url'], item['package_id'], item['name'], item['ri.version'], item['prior_release']
+        repo_path = clone_git_repository(package_id, repo_url)
+        if repo_path == invalid_git_remote:
+            logging.info(repo_path)
+            continue
+        os.chdir(repo_path)
+        repo = Repo(repo_path)
+        assert not repo.bare 
+
+        cur_commit, prior_commit = get_commit_of_release(repo, package_name, release), get_commit_of_release(repo, package_name, prior_release)
+        sql.execute('update release_info set commit_sha=%s, prior_release_commit_sha=%s where package_id=%s and version = %s',(cur_commit, prior_commit, package_id, release))
 
 if __name__=='__main__':
-    #print(is_git_repository('/Users/nasifimtiaz/repos/advisory-lifecycle/data_explore/temp'))
-    #print(get_commit_date_from_local_repo('/Users/nasifimtiaz/repos/advisory-lifecycle/data_explore/temp/salt','955d7304719b26ad6ab8dcff902f9692a919c280'))
-    process_fix_commit_dates()
-    
+    #process_fix_commit_dates()
+    get_release_commits()

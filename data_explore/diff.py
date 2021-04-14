@@ -8,6 +8,8 @@ cur_release = '2b3851e1508b58f3f417457317fd688796c61c2c'
 def change_complexity(repo_path, prior_release_commit, cur_release_commit):
     commit_count = loc_change = 0
     files = set()
+    authors = set()
+    committers = set()
     methods = set()
     ''' we will filter out: 1. merge commits?
         potentially: commits by bot?'''
@@ -22,12 +24,18 @@ def change_complexity(repo_path, prior_release_commit, cur_release_commit):
         for m in commit.modifications:
             files.add(m.filename)
             parsed_diff = m.diff_parsed
-            print(parsed_diff)
             loc_change += m.added + m.removed 
-            print(m.changed_methods) #changed methods is broken for most programming lan?
+            #print(m.changed_methods) #changed methods is broken for most programming lan?
             map(methods.add, m.changed_methods)
-
-    return commit_count, len(files), loc_change, len(methods)
+        
+        if 'bot' not in commit.committer.name:
+            authors.add((commit.author.name, commit.author.email))
+            committers.add((commit.committer.name, commit.committer.email))
+        else:
+            logging.info(commit.committer.name)
+    
+    print(authors)
+    return commit_count, len(files), loc_change, len(methods), len(authors)
 
 print(change_complexity(repo_path, prior_release, cur_release))
 
