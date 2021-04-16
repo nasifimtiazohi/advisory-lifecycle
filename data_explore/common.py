@@ -16,6 +16,7 @@ short_commits = 0
 import collections
 import githubapi
 import semantic_version
+import githubapi
 
 
 repos_to_avoid = [
@@ -573,7 +574,6 @@ def custom_fix_commits():
                     print(error)
                     exit()
 
-
 def semver_sorting(l):
     if len(l) > 1:
         for i in range(0,len(l)):
@@ -582,9 +582,34 @@ def semver_sorting(l):
                     l[i], l [j] = l[j], l[i]
     return l
 
+def get_release_note_info():
+    q = '''select distinct package_id, repository_url, version
+        from advisory a
+        join package p on a.package_id = p.id
+        join fixing_releases fr on a.id = fr.advisory_id
+        where type != 'Malicious Package'
+        and version != 'manual checkup needed'
+        and ecosystem != 'cocoapods'
+        and repository_url != 'no repository listed'
+        and repository_url like %s 
+        and concat(package_id,version) not in
+        (select concat(package_id,version) from release_note);'''
+    results = sql.execute(q,('https://github.com%',))
+    
+    for item in results:
+        package_id, repo_url, version = item['package_id'], item['repository_url'], item['version']
+        owner, name = repo_url.split('/')[-2:]
+        print(owner,name, version)
+        node = githubapi.get_release_note(owner,name, version)
+        if node:
+            sql.execute('insert into release_note values(%s,%s,%s,%s,%s,%s,%s)',(package_id,version, node['name'],node['url'],
+                            dt.parse(node['publishedAt']), node['tagName'], node['tagCommit']['oid']))
+        else:
+            sql.execute('insert into release_note values(%s,%s,%s,%s,%s,%s,%s)',(package_id,version,None,'not found through script',None,None,None))
 
 
 if __name__=='__main__':
     #analyze_change_complexity()
-    get_fix_commits()
+    #get_fix_commits()
+    get_release_note_info()
 

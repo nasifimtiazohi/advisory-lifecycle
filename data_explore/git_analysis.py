@@ -12,8 +12,10 @@ import common
 import dateutil
 import difflib
 import re
+import shutil
 data_path = root_path +'/temp'
 invalid_git_remote = 'invalid remote git url'
+from changelog import locate_changelog
 
 def is_git_repository(path):
     os.chdir(path)
@@ -58,6 +60,8 @@ def sanitize_repo_url(repo_url):
             flag = True
     assert flag
 
+    if s.endswith('.git'):
+        s=s[:-len('.git')]
     s = http + '/'.join(s.split('/')[:3])
 
     return s
@@ -363,13 +367,51 @@ def analyze_change_complexity():
     
         
 
+def get_changelog():
+    q = '''select distinct package_id, repository_url
+        from advisory a
+        join package p on a.package_id = p.id
+        join fixing_releases fr on a.id = fr.advisory_id
+        where type != 'Malicious Package'
+        and version != 'manual checkup needed'
+        and ecosystem != 'cocoapods'
+        and repository_url != 'no repository listed' 
+        and package_id not in
+        (select package_id from changelog);'''
+    results = sql.execute(q)
+    
+    for item in results:
+        package_id, repo_url = item['package_id'], item['repository_url']
+        print('processing ',package_id)
+        repo_name = repo_url.split('/')[-1]
+        repo_path = clone_git_repository(package_id, sanitize_repo_url(repo_url))  
+        if repo_path == invalid_git_remote:
+            continue
+
+        candidates = locate_changelog(repo_path)
+        changelog_urls = []
+        for s in candidates:
+            s = s[len('/Users/nasifimtiaz/repos/advisory-lifecycle/data_explore/temp/{}/{}'.format(package_id,repo_name)):]
+            s = sanitize_repo_url(repo_url) + '/blob/master' + s
+            changelog_urls.append(s)
         
+        if not changelog_urls:
+            sql.execute('insert into changelog values(%s,%s)',(package_id,'no changlog found in script'))
+        else:
+            for url in changelog_urls:
+                sql.execute('insert into changelog values(%s,%s)',(package_id,url))
+
+
+        os.chdir('../..')
+        shutil.rmtree('./{}'.format(package_id), ignore_errors=True)
+
         
        
 
 
 
 if __name__=='__main__':
-    process_fix_commit_dates()
+    #process_fix_commit_dates()
     #get_release_commits()
     #analyze_change_complexity()
+    get_changelog()
