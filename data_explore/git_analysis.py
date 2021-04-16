@@ -368,15 +368,16 @@ def analyze_change_complexity():
         
 
 def get_changelog():
-    q = '''select distinct package_id, repository_url
+    q = '''select distinct a.package_id, repository_url
         from advisory a
         join package p on a.package_id = p.id
         join fixing_releases fr on a.id = fr.advisory_id
-        where type != 'Malicious Package'
+        join manual_sample ms on a.id = ms.advisory_id
+        where a.type != 'Malicious Package'
         and version != 'manual checkup needed'
-        and ecosystem != 'cocoapods'
-        and repository_url != 'no repository listed' 
-        and package_id not in
+        and p.ecosystem != 'cocoapods'
+        and repository_url != 'no repository listed'
+        and a.package_id not in
         (select package_id from changelog);'''
     results = sql.execute(q)
     

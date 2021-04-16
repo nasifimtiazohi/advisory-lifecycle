@@ -66,7 +66,7 @@ def flatten(dictionary, parent_key=False, separator='.'):
 def search_for_github_repo(package, data):
     data = flatten(data)
     for k in data.keys():
-        if isinstance(data[k], str) and '\n' not in data[k] and data[k].startswith('https://github.com') and package in data[k]:
+        if isinstance(data[k], str) and '\n' not in data[k] and data[k].startswith('https://github.com') and package.lower() in data[k].lower():
             url = data[k]
             if url.endswith('.git'):
                 url=url[:-len('.git')]
