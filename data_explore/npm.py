@@ -4,12 +4,17 @@
 3. get last release before fix
 '''
 
+
 import common, sql
 import os, json
 import subprocess, shlex
 from dateutil import parser as dt
 import dateutil
+from distutils.version import LooseVersion, StrictVersion
+
 ecosystem = 'npm'
+
+
 
 def get_repository_url(package):
     ''' npm repo command gets the subdirectory of a package within a git repository '''
@@ -59,7 +64,35 @@ def get_prior_release(package, version):
     else:
         return common.manualcheckup
     
+def check_prior_release():
+    q='''select *
+        from release_info ri
+        join package p on ri.package_id = p.id
+        where ecosystem = 'npm';'''
+    results = sql.execute(q)
 
+    for item in results:
+        package, version, prior_release = item['name'], item['version'], item['prior_release']
+        print(package, version, prior_release)
+        flag = True
+        try:
+            lines = subprocess.check_output(shlex.split('npm view {} versions --json'.format(package)), 
+                            stderr=subprocess.STDOUT, encoding="437")
+        except Exception as e:
+            print(e)
+            flag = False
+            assert prior_release == common.manualcheckup
+
+        if flag:
+            d = json.loads(lines)
+            d = common.semver_sorting(d)
+            if version in d:
+                idx = d.index(version) 
+                if idx == 0:
+                    assert prior_release == common.manualcheckup
+                else:
+                    assert prior_release == d[idx-1]
+        
 
 if __name__ == '__main__':
     #get repository remote url of packages

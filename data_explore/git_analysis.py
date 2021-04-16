@@ -161,7 +161,15 @@ def process_fix_commit_dates():
         repo_url = sanitize_repo_url(repo_url)
         reference_urls = get_referenced_urls(advisory_id, sha)
         for url in reference_urls:
-            print(url, repo_url)
+            print("two urls:" ,url, repo_url)
+            if 'opendev' in url:
+                url = requests.get(url).url
+                if repo_url.split('/')[-1] in url:
+                    return True
+            if 'bitbucket' in url:
+                if repo_url.split('/')[-1] == url.split('/')[-1]:
+                    return True
+
             url = sanitize_repo_url(url)
             if repo_url ==  url:
                 return True
@@ -172,7 +180,7 @@ def process_fix_commit_dates():
     q = '''select *
             from fix_commits fc
             join package p on fc.package_id = p.id
-            where ecosystem = 'npm'
+            where ecosystem = 'pip'
             and commit_date is null
             and invalid is null;'''
     results = sql.execute(q)
@@ -362,6 +370,6 @@ def analyze_change_complexity():
 
 
 if __name__=='__main__':
-    #process_fix_commit_dates()
+    process_fix_commit_dates()
     #get_release_commits()
-    analyze_change_complexity()
+    #analyze_change_complexity()

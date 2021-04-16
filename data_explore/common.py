@@ -15,6 +15,8 @@ notgit = 'not git'
 short_commits = 0
 import collections
 import githubapi
+import semantic_version
+
 
 repos_to_avoid = [
             'https://github.com/rapid7/metasploit-framework',
@@ -311,7 +313,7 @@ def parse_repository_url_from_references(url):
     elif 'https://git.spip.net/spip/spip' in url:
         return 'https://github.com/spipremix/spip'
     elif 'opendev' in url:
-        return manualcheckup
+        return url
     else:
         print ('i am here fuck it', url)
         exit() #manually inspect
@@ -570,6 +572,17 @@ def custom_fix_commits():
                 else:
                     print(error)
                     exit()
+
+
+def semver_sorting(l):
+    if len(l) > 1:
+        for i in range(0,len(l)):
+            for j in range(i+1,len(l)):
+                if semantic_version.Version(l[i]) > semantic_version.Version(l[j]):
+                    l[i], l [j] = l[j], l[i]
+    return l
+
+
 
 if __name__=='__main__':
     #analyze_change_complexity()
