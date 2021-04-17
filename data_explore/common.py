@@ -87,6 +87,7 @@ def getPackagesToProcessRelease(ecosystem):
         join advisory a on fr.advisory_id = a.id
         join package p on a.package_id = p.id
         where ecosystem=%s and version != %s
+        and repository_url != 'no repository listed'
         and concat(package_id, version)
         not in (select concat(package_id, version) from release_info);'''
     results =  sql.execute(q,(ecosystem,manualcheckup))
@@ -575,11 +576,10 @@ def custom_fix_commits():
                     exit()
 
 def semver_sorting(l):
-    if len(l) > 1:
-        for i in range(0,len(l)):
-            for j in range(i+1,len(l)):
-                if semantic_version.Version(l[i]) > semantic_version.Version(l[j]):
-                    l[i], l [j] = l[j], l[i]
+    for i in range(0,len(l)):
+        for j in range(i+1,len(l)):
+            if semantic_version.Version(l[i]) > semantic_version.Version(l[j]):
+                l[i], l [j] = l[j], l[i]
     return l
 
 def get_release_note_info():
