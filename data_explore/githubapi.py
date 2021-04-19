@@ -59,10 +59,12 @@ def get_release_note(owner, name, version):
         data= data['releases']
         
         totalCount=data['totalCount']
+        #print(totalCount)
         releases.extend(data['nodes'])
         
         for node in data['nodes']:
-            if (node['name'] and node['name'].endswith(version)) or (node['tagName'] and node['tagName'].endswith(version)):
+            #print(node['name'], node['tagName'])
+            if (node['name'] and node['name'].strip().endswith(version)) or (node['tagName'] and node['tagName'].strip().endswith(version)):
                 return node
 
         if data['pageInfo']['hasNextPage']:
@@ -76,4 +78,4 @@ def get_release_note(owner, name, version):
         raise Exception('graphql call not functioning properly')
 
 if __name__=='__main__':
-    print(get_release_note('aio-libs','aiohttp','3.7.4'))
+    print(get_release_note('swagger-api','swagger-ui','3.0.14'))

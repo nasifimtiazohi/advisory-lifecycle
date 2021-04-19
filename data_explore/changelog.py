@@ -14,6 +14,9 @@ def is_git_repository(path):
     return '.git' in files
 
 def is_documentation(file):
+    if '.' not in file:
+        #no format
+        return True 
     for format in _documentation_formats:
         if file.lower().endswith(format):
             return True

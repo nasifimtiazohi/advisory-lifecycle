@@ -12,6 +12,7 @@ ecosystem = 'Maven'
 import maven_version
 from maven_version import error, MavenVersion
 
+
 from selenium import webdriver
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.support.ui import WebDriverWait

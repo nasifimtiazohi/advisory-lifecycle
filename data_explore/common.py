@@ -17,7 +17,7 @@ import collections
 import githubapi
 import semantic_version
 import githubapi
-
+import git_analysis as ga
 
 repos_to_avoid = [
             'https://github.com/rapid7/metasploit-framework',
@@ -598,6 +598,7 @@ def get_release_note_info():
     
     for item in results:
         package_id, repo_url, version = item['package_id'], item['repository_url'], item['version']
+        repo_url = ga.sanitize_repo_url(repo_url)
         owner, name = repo_url.split('/')[-2:]
         print(owner,name, version)
         node = githubapi.get_release_note(owner,name, version)
