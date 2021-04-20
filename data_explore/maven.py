@@ -82,16 +82,25 @@ def isValidVersion(v):
 
 def parse_mavenrepo_page(url):
     page = requests.get(url)
-    versions = {}
     if page.status_code == 200:
+        versions = {}
+        allValid = True #if all versions are valid
+
         soup = BS(page.content, "html.parser")
         pres = soup.find_all("pre")
         assert len(pres) == 1
         pre = pres[0]
         lines = pre.text.strip().split('\n')
         for line in lines:
-            if '../' in line or 'xml' in line or '$' in line or 'md5' in line or 'sha' in line or 'KEYS' in line or 'java' in line:
+            if '../' in line or 'xml' in line or '$' in line or 'md5' in line or 'sha' in line or 'KEYS' in line:
+                #not versions
                 continue
+
+            # if 'java' in line or 'jre' in line: 
+            #     #handle it differently
+            #     # #or jdbc, dev, amd, dmr, npm
+            #     continue
+
             line = line.split(' ')
             line = list(filter(('').__ne__, line))
             if len(line) == 4:
@@ -106,15 +115,21 @@ def parse_mavenrepo_page(url):
                 version = line[0][:-1]
                 time = None 
             
+            else:
+                print('check this case')
+                logging.info(line)
+                exit()
+            
             if isValidVersion(version):
                 versions[version] = time
             else:
                 logging.info(version)
+                allValid = False
 
-        return versions
+        return versions, allValid
 
     else:
-        return None
+        return None, False
 
 def maven_sort(l):
     for i in range(len(l)):
@@ -126,43 +141,42 @@ def maven_sort(l):
 
 def get_release_info(package,version):
     publish_date = prior_release = None
+    skip = True #temporary logic for now to only work with valid ones
     url = 'https://repo1.maven.org/maven2/' + package.replace('.','/').replace(':','/')
     print(url)
-    versions = parse_mavenrepo_page(url)
-    if versions:
+    versions, allValid = parse_mavenrepo_page(url)
+    if versions and allValid:
+        skip = False
         if version in versions:
             publish_date = versions[version]
             d = maven_sort(list(versions.keys()))
             idx = d.index(version)
             if idx  == 0:
-                print('first')
+                logging.info('PLEASE CHECK WHAT THE MATTER WITH THIS')
                 logging.info(version)
             else:
                 prior_release = d[idx-1]
 
-    return publish_date, prior_release
+    return publish_date, prior_release, skip
 
 
 
 if __name__=='__main__':
-    # #get repository remote url of packages
-    # packages = common.getPackagesToSearchRepository(ecosystem)
-    # for item in packages:
-    #     id, repo = item['id'], get_repository_url(item['name'])
-    #     sql.execute('update package set repository_url=%s where id = %s',(repo,id))
+    #get repository remote url of packages
+    packages = common.getPackagesToSearchRepository(ecosystem)
+    for item in packages:
+        id, repo = item['id'], get_repository_url(item['name'])
+        sql.execute('update package set repository_url=%s where id = %s',(repo,id))
     
-    # sanitize_repo_url()
+    sanitize_repo_url()
 
-    # #get release info (publish date and prior release) for each fixing release
-    # packages = common.getPackagesToProcessRelease(ecosystem)
-    # for item in packages:
-    #     package_id, package, version = item['package_id'], item['package'], item['version']
-    #     #print(package, package_id, version)
-    #     publish_date, prior_release = get_release_info(package,version)
-    #     #print(publish_date, prior_release)
-    #    # sql.execute('insert into release_info values(null,%s,%s,%s,%s)',(package_id, version, publish_date, prior_release))
+    #get release info (publish date and prior release) for each fixing release
+    packages = common.getPackagesToProcessRelease(ecosystem)
+    for item in packages:
+        package_id, package, version = item['package_id'], item['package'], item['version']
+        publish_date, prior_release, skip = get_release_info(package,version)
+        print(package_id, version, publish_date, prior_release, skip)
+        if not skip:
+           sql.execute('insert into release_info values(null,%s,%s,%s,%s)',(package_id, version, publish_date, prior_release))
+           pass 
     
-    v1 = MavenVersion('16.6.0-alpha.400d197')
-    v2 = MavenVersion('1.0final')
-
-    print(v1,v2, v1 < v2)

@@ -22,7 +22,6 @@ def split_alphanum(s):
                 rv.append(int(i))
             else:
                 rv.append(i)
-    print('sprint', s ,rv)
     return rv
 
 
@@ -37,11 +36,16 @@ class MavenVersion:
     all_qualifiers = (
         ['alpha', 'a'],
         ['beta', 'b'],
-        ['milestone', 'm'],
-        ['rc', 'cr', 'pr'],
+        #nextm comes from next-m as in next milestone
+        ['milestone', 'm','nextm'], 
+        #pr comes from prerelease,
+        ['pr','preview','criteriapreview','pre'],
+        ['rc', 'cr', 'criterirarc'],
         ['snapshot'],
-        ['', 'ga', 'final', 'release', 'incubating'],
-        ['sp']
+        #release equates to final
+        ['', 'ga', 'final', 'release'],
+        ['sp'],
+        ['v', 'sec', 'incubating','incubatingm', 'dtexperimental','sr','hadoop']
     )
 
     def __init__(self, version):
@@ -50,7 +54,6 @@ class MavenVersion:
 
         self._v = self.version = version.strip().lower()
         self.create_version()
-        print("here", self.version)
         self.transform()
 
     def __str__(self):
@@ -102,7 +105,6 @@ class MavenVersion:
             patch_version = 0
 
         qualifier = self.version[i:]
-        print('qual', qualifier)
         if qualifier:
             qualifier = split_alphanum(''.join(map(lambda x: str(x), qualifier)))
             i = 0
@@ -121,8 +123,7 @@ class MavenVersion:
             else:
                 qualifier_type = 5
             if type(qualifier_type) is not int:
-                qualifier_type = len(self.all_qualifiers)
-                #error(f'Invalid qualifier found in: {self._v}')
+                error(f'Invalid qualifier found in: {self._v}')
             qualifier_suffix = get_or_else(qualifier, i)
             if qualifier_suffix is not None and type(qualifier_suffix) is int:
                 i += 1
@@ -130,7 +131,6 @@ class MavenVersion:
                 qualifier_suffix = 0
 
             if i != len(qualifier):
-                print(i, qualifier, qualifier_prefix, qualifier_type, qualifier_suffix)
                 error(f'Invalid qualifier found in: {self._v}')
             qualifier = [qualifier_prefix, qualifier_type, qualifier_suffix]
         else:
@@ -138,3 +138,9 @@ class MavenVersion:
             qualifier = [0, 5, 0]
 
         self.version = major_version, minor_version, patch_version, *qualifier
+
+if __name__ == '__main__':
+    v='9.4.4.v20170414'
+    print(v)
+    v1 = MavenVersion(v)
+    print(v1)
