@@ -68,6 +68,39 @@ def get_release_info(package, version):
 
     return release_date, prior_release
 
+def check_prior_release():
+    q='''select *
+        from release_info ri
+        join package p on ri.package_id = p.id
+        where ecosystem = 'pip';'''
+    results = sql.execute(q)
+
+    for item in results:
+        package, version, prior_release = item['name'], item['version'], item['prior_release']
+        print(package, version, prior_release)
+        release_date = prior_release = None
+        try:
+            url = 'https://pypi.org/pypi/{}/json'.format(package)
+            page = requests.get(url)
+            assert page.status_code == 200
+            data = json.loads(page.content)
+            assert 'releases' in data
+
+            releases = data['releases']
+            if version in releases.keys():
+                if len(releases[version]) > 0:
+                    release_date = (dt.parse(releases[version][-1]['upload_time_iso_8601'])).astimezone(dateutil.tz.tzutc())
+                
+                versions = list(releases.keys())
+
+                for i in range(len(versions)):
+                    for j in range(i+1, len(versions)):
+                        if PythonVersion.Version(versions[i]) == PythonVersion.Version(versions[j]):
+                            print(versions[i],versions[j])
+                            logging.info('eequal')
+        except Exception as e:
+            print(e)
+                
 
 if __name__=='__main__':
     #get repository remote url of packages

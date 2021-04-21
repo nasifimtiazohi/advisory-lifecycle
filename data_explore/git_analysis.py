@@ -151,6 +151,7 @@ def get_full_sha_for_short_shas(repo_path, sha):
     return fullsha
 
 def process_fix_commit_dates():
+    
     def get_referenced_urls(advisory_id, sha):
         q='''select url from processed_reference_url
                 where advisory_id=%s
@@ -161,6 +162,7 @@ def process_fix_commit_dates():
             url = common.parse_repository_url_from_references(item['url'])
             urls.add(url)
         return urls
+    
     def is_repo_matched(advisory_id, sha, repo_url):
         repo_url = sanitize_repo_url(repo_url)
         reference_urls = get_referenced_urls(advisory_id, sha)
@@ -184,7 +186,7 @@ def process_fix_commit_dates():
     q = '''select *
             from fix_commits fc
             join package p on fc.package_id = p.id
-            where ecosystem = 'pip'
+            where ecosystem = 'Maven'
             and commit_date is null
             and invalid is null;'''
     results = sql.execute(q)
@@ -362,10 +364,7 @@ def analyze_change_complexity():
         commits, files, loc, contributors =  diff.change_complexity(repo_path, prior_release_commit, fixing_relese_commit)
 
         print(advisory_id, release_id, commits, files, loc, contributors, None, release_type)
-        sql.execute('insert into change_complexity values(%s,%s,%s,%s,%s,%s,%s,%s)',(advisory_id, release_id, commits, files, loc, contributors, None, release_type))
-
-    
-        
+        sql.execute('insert into change_complexity values(%s,%s,%s,%s,%s,%s,%s,%s)',(advisory_id, release_id, commits, files, loc, contributors, None, release_type))       
 
 def get_changelog():
     q = '''select distinct a.package_id, repository_url
@@ -412,7 +411,7 @@ def get_changelog():
 
 
 if __name__=='__main__':
-    #process_fix_commit_dates()
+    process_fix_commit_dates()
     #get_release_commits()
     #analyze_change_complexity()
-    get_changelog()
+    # get_changelog()

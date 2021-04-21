@@ -131,12 +131,27 @@ def parse_mavenrepo_page(url):
     else:
         return None, False
 
-def maven_sort(l):
+def maven_sort(versions):
+    l = list(versions.keys())
     for i in range(len(l)):
         for j in range(i+1, len(l)):
             v1 , v2 = MavenVersion(l[i]), MavenVersion(l[j])
             if v1 > v2:
                 l[i],l[j]=l[j],l[i]
+    
+    i = 1
+    while i < len(l):
+        if MavenVersion(l[i]) == MavenVersion(l[i-1]):
+            if versions[l[i]] == None:
+                del l[i]
+            elif versions[l[i-1]] == None:
+                l[i],l[i-1] == l[i-1], l [i]
+                del l[i]
+            else:
+                i+=1
+        else:
+            i+=1
+            
     return l
 
 def get_release_info(package,version):
@@ -149,13 +164,14 @@ def get_release_info(package,version):
         skip = False
         if version in versions:
             publish_date = versions[version]
-            d = maven_sort(list(versions.keys()))
-            idx = d.index(version)
-            if idx  == 0:
-                logging.info('PLEASE CHECK WHAT THE MATTER WITH THIS')
-                logging.info(version)
-            else:
-                prior_release = d[idx-1]
+            sorted_versions = maven_sort(versions)
+            if version in sorted_versions:
+                idx = sorted_versions.index(version)
+                if idx  == 0:
+                    logging.info('PLEASE CHECK WHAT THE MATTER WITH THIS')
+                    logging.info(version)
+                else:
+                    prior_release = sorted_versions[idx-1]
 
     return publish_date, prior_release, skip
 

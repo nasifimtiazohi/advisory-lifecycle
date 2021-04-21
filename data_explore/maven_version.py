@@ -134,13 +134,13 @@ class MavenVersion:
                 error(f'Invalid qualifier found in: {self._v}')
             qualifier = [qualifier_prefix, qualifier_type, qualifier_suffix]
         else:
-            # 5 = ['', 'ga', 'final']
-            qualifier = [0, 5, 0]
+            # 6 = ['', 'ga', 'final']
+            qualifier = [0, 6, 0]
 
         self.version = major_version, minor_version, patch_version, *qualifier
 
 if __name__ == '__main__':
-    v='9.4.4.v20170414'
+    v='2.0.5'
     print(v)
     v1 = MavenVersion(v)
     print(v1)

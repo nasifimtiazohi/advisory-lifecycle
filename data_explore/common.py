@@ -578,6 +578,10 @@ def custom_fix_commits():
 def semver_sorting(l):
     for i in range(0,len(l)):
         for j in range(i+1,len(l)):
+            if semantic_version.Version(l[i]) == semantic_version.Version(l[j]):
+                logging('equal version found')
+                print(l[i],l[j])
+                exit()
             if semantic_version.Version(l[i]) > semantic_version.Version(l[j]):
                 l[i], l [j] = l[j], l[i]
     return l
@@ -612,5 +616,5 @@ def get_release_note_info():
 if __name__=='__main__':
     #analyze_change_complexity()
     #get_fix_commits()
-    get_release_note_info()
-
+    # get_release_note_info()
+    print(semantic_version.Version('3.1.0.0'))
