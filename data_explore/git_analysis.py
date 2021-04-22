@@ -7,7 +7,7 @@ import logging, coloredlogs
 from git import Repo
 coloredlogs.install()
 from pathlib import Path
-root_path = os.getcwd()
+root_path = '/Volumes/nasifhdd'
 import common
 import dateutil
 import difflib
@@ -16,6 +16,7 @@ import shutil
 data_path = root_path +'/temp'
 invalid_git_remote = 'invalid remote git url'
 from changelog import locate_changelog
+import pandas as pd
 
 def is_git_repository(path):
     os.chdir(path)
@@ -23,11 +24,17 @@ def is_git_repository(path):
     return '.git' in files
 
 def clone_git_repository(package_id, repo_url):
+    #custom path for big repos
+    if repo_url == 'https://github.com/liferay/liferay-portal':
+        return '/Users/nasifimtiaz/repos/liferay-portal'
+
     url = sanitize_repo_url(repo_url)
     repo_name = url.split('/')[-1]
     
     repo_path = data_path + '/{}/{}'.format(package_id,repo_name) #already exists or to be created here
     if Path(repo_path).is_dir() and is_git_repository(repo_path):
+        os.chdir(repo_path)
+        os.system('git pull')
         return repo_path
     
 
@@ -52,8 +59,12 @@ def sanitize_repo_url(repo_url):
     assert repo_url.startswith(http)
     s = repo_url[len(http):]
     
+    #custom
+    if s.startswith('svn.opensymphony.com'):
+        return repo_url
+    
     #below rule covers github, gitlab, bitbucket, foocode, eday, qt
-    sources = ['github', 'gitlab', 'bitbucket', 'foocode', 'eday', 'q']
+    sources = ['github', 'gitlab', 'bitbucket', 'foocode', 'eday', 'q', 'opendev']
     flag = False
     for source in sources:
         if source in s:
@@ -96,28 +107,26 @@ def get_commit_message_from_local_repo(repo_path,sha):
                             stderr= subprocess.STDOUT, encoding = '437')
     return msg.strip()
 
-def get_commit_of_release(repo, package, release):
+def get_commit_of_release(tags, package, release):
     '''repo is a gitpython object, while version is a string taken from ecosystem data'''
     release_tag = None #store return value
-    
-    tags = repo.tags
     candidate_tags = []
     for tag in tags:
-        if release in tag.path:
+        if release in tag.name:
             candidate_tags.append(tag)
     
     if not candidate_tags:
         for tag in tags:
-            if release.replace('.','-') in tag.path or release.replace('.','_') in tag.path:
+            if release.replace('.','-') in tag.name or release.replace('.','_') in tag.name:
                 logging.info(release)
-                print(tag.path)
+                print(tag.name)
                 exit()   
     elif len(candidate_tags) == 1:
         release_tag = candidate_tags[0]
     elif len(candidate_tags) > 1:
         new_candidates = []
         for tag in candidate_tags:
-            if package in tag.path:
+            if package in tag.name:
                 new_candidates.append(tag)
         candidate_tags = new_candidates
     
@@ -127,7 +136,7 @@ def get_commit_of_release(repo, package, release):
     elif len(candidate_tags) > 1:
         new_candidates = []
         for tag in candidate_tags:
-            if tag.path.endswith(release):
+            if tag.name.endswith(release):
                 new_candidates.append(tag)
         candidate_tags = new_candidates
     
@@ -138,7 +147,7 @@ def get_commit_of_release(repo, package, release):
         exit()
 
     if release_tag:
-        print(release_tag.path, release)
+        print(release_tag.name, release)
         return release_tag.commit
     return None
 
@@ -175,6 +184,14 @@ def process_fix_commit_dates():
             if 'bitbucket' in url:
                 if repo_url.split('/')[-1] == url.split('/')[-1]:
                     return True
+            if 'repos/asf?p=' in url and '.git' in url:
+                package = url[url.find('repos/asf?p=') + len ('repos/asf?p='):]
+                package = package[:package.find('.git')]
+                if package in repo_url:
+                    return True
+            
+            if url in common.repos_to_avoid:
+                return False
 
             url = sanitize_repo_url(url)
             if repo_url ==  url:
@@ -186,10 +203,12 @@ def process_fix_commit_dates():
     q = '''select *
             from fix_commits fc
             join package p on fc.package_id = p.id
-            where ecosystem = 'Maven'
+            where ecosystem = 'Go'
             and commit_date is null
-            and invalid is null;'''
-    results = sql.execute(q)
+            and invalid is null
+            and repository_url != %s
+            and commit_sha != 'not git';'''
+    results = sql.execute(q, (common.norepo,))
     c=0
     for item in results:
         advisory_id, package_id, repo_url, sha = item['advisory_id'], item['package_id'], item['repository_url'], item['commit_sha']
@@ -217,7 +236,8 @@ def process_fix_commit_dates():
             #hand checked custom
             elif (repo_url == 'https://github.com/ckeditor/ckeditor5/tree/master/packages/ckeditor5-link' and sha == 'a23590ec1e4742f2483350af1332bd209c780e1a') \
                 or (repo_url == 'https://github.com/apollographql/federation/tree/master/gateway-js/' and sha == '8f7ffe43b05ab8200f805697c6005e4e0bca080a') \
-                    or sha == '47cef07bb09779df15620799f3763d1b8d32307a' or sha == 'f6e0f545401a1b039a54605dba2d7afa5a6477e2':
+                    or sha == '47cef07bb09779df15620799f3763d1b8d32307a' or sha == 'f6e0f545401a1b039a54605dba2d7afa5a6477e2' or \
+                    (advisory_id == 'SNYK-JAVA-ORGAPACHEQPID-30714' and sha == '669cfff838d2798fa89b9db546823e6245433d4e'):
                 commit_date, author_date = get_commit_date_from_local_repo(repo_path, sha), get_author_date_from_local_repo(repo_path,sha) 
             else:
                 # check commit messages as a reliable heuristic
@@ -280,23 +300,45 @@ def parse_release_type(release):
     
     return 'major'
 
-
 def get_release_commits():
-    q='''select *
+    def results_per_package(package_id):
+        q='''select *
+            from advisory a
+            join fixing_releases fr on a.id = fr.advisory_id
+            join release_info ri on fr.version = ri.version and ri.package_id=a.package_id
+            join package p on a.package_id = p.id
+            where repository_url is not null
+            and repository_url != %s
+            and ecosystem != 'Go'
+            and ri.version != 'manual checkup needed'
+            and prior_release != 'manual checkup needed' 
+            and (concat(a.package_id, ri.version) not in
+            (select concat(package_id, version) from release_commit)
+            or concat(a.package_id, ri.prior_release) not in
+            (select concat(package_id, version) from release_commit))
+            and a.package_id = %s'''
+        results = sql.execute(q,(common.norepo, package_id))
+        return results
+
+    q='''select distinct p.id, p.repository_url, p.name
         from advisory a
         join fixing_releases fr on a.id = fr.advisory_id
         join release_info ri on fr.version = ri.version and ri.package_id=a.package_id
         join package p on a.package_id = p.id
         where repository_url is not null
         and repository_url != %s
+        and ecosystem != 'Go'
+        and ri.version != 'manual checkup needed'
+        and prior_release != 'manual checkup needed' 
         and (concat(a.package_id, ri.version) not in
         (select concat(package_id, version) from release_commit)
         or concat(a.package_id, ri.prior_release) not in
         (select concat(package_id, version) from release_commit))'''
-    results = sql.execute(q,(common.norepo,))
-    
-    for item in results:
-        advisory_id, repo_url, package_id, package_name, release, prior_release = item['advisory_id'], item['repository_url'], item['package_id'], item['name'], item['ri.version'], item['prior_release']
+    packages = sql.execute(q,(common.norepo,))
+
+    for row in packages:
+        package_id, repo_url, package_name = row['id'], row['repository_url'], row['name']
+        results = results_per_package(package_id)
         repo_path = clone_git_repository(package_id, repo_url)
         if repo_path == invalid_git_remote:
             logging.info(repo_path)
@@ -304,22 +346,27 @@ def get_release_commits():
         os.chdir(repo_path)
         repo = Repo(repo_path)
         assert not repo.bare 
+        tags = repo.tags #may take some time
 
-        releases = [release, prior_release]
-        for release in releases:
-            if release == common.manualcheckup:
-                continue
-            head_commit = get_commit_of_release(repo, package_name, release)
-            try:
-                sql.execute('insert into release_commit values(%s,%s,%s)',(package_id, release, head_commit))
-            except sql.pymysql.IntegrityError as error:
-                if error.args[0] == sql.PYMYSQL_DUPLICATE_ERROR:
-                    pass
-                    #safely continue
-                else:
-                    print(error)
-                    exit()        
 
+        for item in results:
+            advisory_id, release, prior_release = item['advisory_id'], item['ri.version'], item['prior_release']
+            print(package_id, release, prior_release)
+
+            releases = [release, prior_release]
+            for release in releases:
+                if release == common.manualcheckup:
+                    continue
+                head_commit = get_commit_of_release(tags, package_name, release)
+                try:
+                    sql.execute('insert into release_commit values(%s,%s,%s)',(package_id, release, head_commit))
+                except sql.pymysql.IntegrityError as error:
+                    if error.args[0] == sql.PYMYSQL_DUPLICATE_ERROR:
+                        pass
+                        #safely continue
+                    else:
+                        print(error)
+                        exit()        
 
 def analyze_change_complexity():
     def get_commit_head(package_id, version):
@@ -405,13 +452,35 @@ def get_changelog():
         os.chdir('../..')
         shutil.rmtree('./{}'.format(package_id), ignore_errors=True)
 
+def get_tag_date(path, tag):
+    os.chdir(path)
+    tag_date = dt.parse(subprocess.check_output(shlex.split('git for-each-ref --format="%(creatordate)" "{}"'.format(tag.path)),
+                            stderr= subprocess.STDOUT, encoding = '437'))
+    tag_date = tag_date.astimezone(dateutil.tz.tzutc())
+    return tag_date
+
+def get_all_tags(package_id, repo_url):
+    url = sanitize_repo_url(repo_url)
+    repo_path = clone_git_repository(package_id, repo_url)
+    repo = Repo(repo_path)
+    if repo_path == invalid_git_remote:
+        logging.info(repo_path)
+        return []
+    os.chdir(repo_path)
+    repo = Repo(repo_path)
+    assert not repo.bare
+
+    tags = repo.tags
+    releases = {}
+    for tag in tags:
+        releases[tag.name] = {}
+        releases[tag.name]['pd_commit'] = tag.commit
+        releases[tag.name]['tag_date'] = get_tag_date(repo_path,tag)
+
+    return releases
         
-       
-
-
-
 if __name__=='__main__':
-    process_fix_commit_dates()
-    #get_release_commits()
+    #process_fix_commit_dates()
+    get_release_commits()
     #analyze_change_complexity()
     # get_changelog()

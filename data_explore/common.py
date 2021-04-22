@@ -82,7 +82,7 @@ def getPackagesToSearchRepository(ecosystem):
     return results
 
 def getPackagesToProcessRelease(ecosystem):
-    q = '''select distinct p.id as package_id, p.name as package, version
+    q = '''select distinct p.id as package_id, p.name as package, version, p.repository_url as repo_url
         from fixing_releases fr
         join advisory a on fr.advisory_id = a.id
         join package p on a.package_id = p.id

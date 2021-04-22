@@ -88,7 +88,7 @@ if __name__=='__main__':
         id, repo = item['id'], get_repository_url(item['name'])
         sql.execute('update package set repository_url=%s where id = %s',(repo,id))
     
-     #get release info (publish date and prior release) for each fixing release
+    #get release info (publish date and prior release) for each fixing release
     packages = common.getPackagesToProcessRelease(ecosystem)
     for item in packages:
         id, package, version = item['package_id'], item['package'], item['version']
