@@ -6,7 +6,7 @@ import subprocess, shlex
 _changelog_keywords = ['change','history','news','release']
 
 #https://www.infoworld.com/article/3336202/markdown-vs-alternatives-for-software-documentation.html
-_documentation_formats = ['md','txt','rst', 'adoc','org','html']
+_documentation_formats = ['md','txt','rst', 'adoc','org','html', 'rdoc']
 
 def is_git_repository(path):
     os.chdir(path)

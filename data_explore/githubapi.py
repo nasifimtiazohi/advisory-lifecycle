@@ -50,7 +50,6 @@ def get_release_note(owner, name, version):
     releases = []
     while True:
         data=  run_query(query, variables)
-
         if not data or 'repository' not in data:
             return None
         data = data['repository']
@@ -59,11 +58,11 @@ def get_release_note(owner, name, version):
         data= data['releases']
         
         totalCount=data['totalCount']
-        #print(totalCount)
+        print(totalCount)
         releases.extend(data['nodes'])
         
         for node in data['nodes']:
-            #print(node['name'], node['tagName'])
+            print(node['name'], node['tagName'])
             if (node['name'] and node['name'].strip().endswith(version)) or (node['tagName'] and node['tagName'].strip().endswith(version)):
                 return node
 
@@ -78,4 +77,4 @@ def get_release_note(owner, name, version):
         raise Exception('graphql call not functioning properly')
 
 if __name__=='__main__':
-    print(get_release_note('swagger-api','swagger-ui','3.0.14'))
+    print(get_release_note('symfony', 'http-foundation','6.20.14'))

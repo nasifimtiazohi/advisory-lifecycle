@@ -18,6 +18,7 @@ import githubapi
 import semantic_version
 import githubapi
 import git_analysis as ga
+import time
 
 repos_to_avoid = [
             'https://github.com/rapid7/metasploit-framework',
@@ -600,6 +601,7 @@ def get_release_note_info():
         (select concat(package_id,version) from release_note);'''
     results = sql.execute(q,('https://github.com%',))
     
+    count  = 0
     for item in results:
         package_id, repo_url, version = item['package_id'], item['repository_url'], item['version']
         repo_url = ga.sanitize_repo_url(repo_url)
@@ -611,10 +613,13 @@ def get_release_note_info():
                             dt.parse(node['publishedAt']), node['tagName'], node['tagCommit']['oid']))
         else:
             sql.execute('insert into release_note values(%s,%s,%s,%s,%s,%s,%s)',(package_id,version,None,'not found through script',None,None,None))
-
+        
+        count +=1
+        if count %10 == 0:
+            time.sleep(3)
 
 if __name__=='__main__':
     #analyze_change_complexity()
     #get_fix_commits()
-    # get_release_note_info()
-    print(semantic_version.Version('3.1.0.0'))
+    get_release_note_info()
+    
