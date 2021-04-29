@@ -17,6 +17,7 @@ data_path = root_path +'/temp'
 invalid_git_remote = 'invalid remote git url'
 from changelog import locate_changelog
 import pandas as pd
+from multiprocessing import Pool
 
 def is_git_repository(path):
     os.chdir(path)
@@ -27,6 +28,11 @@ def clone_git_repository(package_id, repo_url):
     #custom path for big repos
     if repo_url == 'https://github.com/liferay/liferay-portal':
         return '/Users/nasifimtiaz/repos/liferay-portal'
+    if repo_url.startswith('https://hg.') or repo_url.startswith('https://svn.'):
+        return invalid_git_remote
+    ignore_urls = ['https://gradle.com']
+    if repo_url in ignore_urls:
+        return invalid_git_remote 
 
     url = sanitize_repo_url(repo_url)
     repo_name = url.split('/')[-1]
@@ -57,12 +63,22 @@ def clone_git_repository(package_id, repo_url):
 def sanitize_repo_url(repo_url):
     http = 'https://'
     assert repo_url.startswith(http)
-    s = repo_url[len(http):]
     
+    s='https://gitbox.apache.org/repos/asf?p='
+    url = repo_url
+    if url.startswith(s):
+        url = url[len(s):]
+        assert url.count('.git') == 1
+        url = url[:url.find('.git')]
+        return 'https://gitbox.apache.org/repos/asf/'+url
+
+    
+    s = repo_url[len(http):]
+
     #custom
     if s.startswith('svn.opensymphony.com'):
         return repo_url
-    
+
     #below rule covers github, gitlab, bitbucket, foocode, eday, qt
     sources = ['github', 'gitlab', 'bitbucket', 'foocode', 'eday', 'q', 'opendev']
     flag = False
@@ -108,7 +124,7 @@ def get_commit_message_from_local_repo(repo_path,sha):
     return msg.strip()
 
 def get_commit_of_release(tags, package, release):
-    '''repo is a gitpython object, while version is a string taken from ecosystem data'''
+    '''tags is a gitpython object, while release is a string taken from ecosystem data'''
     release_tag = None #store return value
     candidate_tags = []
     for tag in tags:
@@ -118,9 +134,7 @@ def get_commit_of_release(tags, package, release):
     if not candidate_tags:
         for tag in tags:
             if release.replace('.','-') in tag.name or release.replace('.','_') in tag.name:
-                logging.info(release)
-                print(tag.name)
-                exit()   
+                candidate_tags.append(tag)  
     elif len(candidate_tags) == 1:
         release_tag = candidate_tags[0]
     elif len(candidate_tags) > 1:
@@ -130,21 +144,23 @@ def get_commit_of_release(tags, package, release):
                 new_candidates.append(tag)
         candidate_tags = new_candidates
     
-    
-    if len(candidate_tags) == 1:
-        release_tag = candidate_tags[0]
-    elif len(candidate_tags) > 1:
-        new_candidates = []
-        for tag in candidate_tags:
-            if tag.name.endswith(release):
-                new_candidates.append(tag)
-        candidate_tags = new_candidates
-    
-    if len(candidate_tags) == 1:
-        release_tag = candidate_tags[0]
-    elif len(candidate_tags) > 1:
-        logging.info(candidate_tags)
-        exit()
+    if not release_tag:
+        if len(candidate_tags) == 1:
+            release_tag = candidate_tags[0]
+        elif len(candidate_tags) > 1:
+            new_candidates = []
+            for tag in candidate_tags:
+                if tag.name.endswith(release):
+                    new_candidates.append(tag)
+            candidate_tags = new_candidates
+
+    if not release_tag:   
+        if len(candidate_tags) == 1:
+            release_tag = candidate_tags[0]
+        elif len(candidate_tags) > 1:
+            print('too many candidate tags')
+            logging.info(candidate_tags)
+            exit()
 
     if release_tag:
         print(release_tag.name, release)
@@ -300,8 +316,9 @@ def parse_release_type(release):
     
     return 'major'
 
-def get_release_commits():
-    def results_per_package(package_id):
+
+def process_all_release_commits(repo_url):
+    def results_per_package(repo_url):
         q='''select *
             from advisory a
             join fixing_releases fr on a.id = fr.advisory_id
@@ -316,11 +333,43 @@ def get_release_commits():
             (select concat(package_id, version) from release_commit)
             or concat(a.package_id, ri.prior_release) not in
             (select concat(package_id, version) from release_commit))
-            and a.package_id = %s'''
-        results = sql.execute(q,(common.norepo, package_id))
+            and p.repository_url = %s'''
+        results = sql.execute(q,(common.norepo, repo_url))
         return results
 
-    q='''select distinct p.id, p.repository_url, p.name
+    results = results_per_package(repo_url)
+    package_id = results[0]['package_id']
+    print(repo_url)
+    repo_path = clone_git_repository(package_id, repo_url)
+    if repo_path == invalid_git_remote:
+        logging.info(repo_path)
+        return 
+    os.chdir(repo_path)
+    repo = Repo(repo_path)
+    assert not repo.bare 
+    tags = repo.tags
+    
+    for item in results:
+        advisory_id, package_id, package_name, release, prior_release = item['advisory_id'], item['package_id'], item['name'], item['ri.version'], item['prior_release']
+        print(package_id, release, prior_release)
+
+        releases = [release, prior_release]
+        for release in releases:
+            if release == common.manualcheckup:
+                return 
+            head_commit = get_commit_of_release(tags, package_name, release)
+            try:
+                sql.execute('insert into release_commit values(%s,%s,%s)',(package_id, release, head_commit))
+            except sql.pymysql.IntegrityError as error:
+                if error.args[0] == sql.PYMYSQL_DUPLICATE_ERROR:
+                    pass
+                    #safely continue
+                else:
+                    print(error)
+                    exit() 
+
+def get_release_commits():
+    q='''select distinct p.repository_url
         from advisory a
         join fixing_releases fr on a.id = fr.advisory_id
         join release_info ri on fr.version = ri.version and ri.package_id=a.package_id
@@ -334,39 +383,12 @@ def get_release_commits():
         (select concat(package_id, version) from release_commit)
         or concat(a.package_id, ri.prior_release) not in
         (select concat(package_id, version) from release_commit))'''
-    packages = sql.execute(q,(common.norepo,))
+    repository_urls = sql.execute(q,(common.norepo,))
+    repo_urls = [row['repository_url'] for row in repository_urls]
+    pool = Pool(os.cpu_count())
+    pool.map(process_all_release_commits, repo_urls)
 
-    for row in packages:
-        package_id, repo_url, package_name = row['id'], row['repository_url'], row['name']
-        results = results_per_package(package_id)
-        repo_path = clone_git_repository(package_id, repo_url)
-        if repo_path == invalid_git_remote:
-            logging.info(repo_path)
-            continue
-        os.chdir(repo_path)
-        repo = Repo(repo_path)
-        assert not repo.bare 
-        tags = repo.tags #may take some time
-
-
-        for item in results:
-            advisory_id, release, prior_release = item['advisory_id'], item['ri.version'], item['prior_release']
-            print(package_id, release, prior_release)
-
-            releases = [release, prior_release]
-            for release in releases:
-                if release == common.manualcheckup:
-                    continue
-                head_commit = get_commit_of_release(tags, package_name, release)
-                try:
-                    sql.execute('insert into release_commit values(%s,%s,%s)',(package_id, release, head_commit))
-                except sql.pymysql.IntegrityError as error:
-                    if error.args[0] == sql.PYMYSQL_DUPLICATE_ERROR:
-                        pass
-                        #safely continue
-                    else:
-                        print(error)
-                        exit()        
+               
 
 def analyze_change_complexity():
     def get_commit_head(package_id, version):
@@ -483,4 +505,4 @@ if __name__=='__main__':
     #process_fix_commit_dates()
     get_release_commits()
     #analyze_change_complexity()
-    # get_changelog()
+    #get_changelog()

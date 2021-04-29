@@ -42,7 +42,6 @@ def get_release_info(package,version, repo_url):
     if len(candidate_tags) == 1:
         release_date =  releases[candidate_tags[0]]['tag_date'].astimezone(dateutil.tz.tzutc())
 
-
     return release_date, prior_release
 
 
