@@ -40,14 +40,14 @@ def clone_git_repository(package_id, repo_url):
     repo_path = data_path + '/{}/{}'.format(package_id,repo_name) #already exists or to be created here
     if Path(repo_path).is_dir() and is_git_repository(repo_path):
         os.chdir(repo_path)
-        os.system('git pull > pull.log > 2>&1')
+        os.system('git pull > pull.log 2>&1')
         return repo_path
     
     os.chdir(data_path)
     try:
         os.mkdir(str(package_id))
     except FileExistsError:
-        os.system('rm -rf ./{} > rm.log > 2>&1'.format(package_id))
+        os.system('rm -rf ./{} > rm.log 2>&1'.format(package_id))
         os.mkdir(str(package_id))
     os.chdir('./{}'.format(package_id))
     os.system('git clone {}.git > {}_clone.log 2>&1'.format(url, repo_name))
@@ -134,7 +134,7 @@ def get_commit_of_release(tags, package, release):
         for tag in tags:
             if tag.name.strip().endswith(release.replace('.','-')) or tag.name.strip().endswith(release.replace('.','_')):
                 candidate_tags.append(tag)  
-
+    
     if len(candidate_tags) == 1:
         release_tag = candidate_tags[0]
     elif len(candidate_tags) > 1:
@@ -150,7 +150,11 @@ def get_commit_of_release(tags, package, release):
         elif len(candidate_tags) > 1:
             print('too many candidate tags')
             logging.info(candidate_tags)
-            exit()            
+            exit()
+        else:
+            #in previous pass there were too many candidate tags, e.g., 2.4.3 , v2.4.3
+            #not considering them to be fully sure
+            pass      
 
     if release_tag:
         return release_tag.commit
@@ -288,14 +292,10 @@ def process_fix_commit_dates():
     logging.info('FIX COMMIT DATE PROCESSING DONE')
 
 def parse_release_type(release):
+    if '-' in release or release.count('.') > 2:
+        return 'prerelease'
+
     parts = release.split('.')
-
-    if '-' in release:
-            return 'prerelease'
-
-    if len(parts) > 3:
-        logging.info(release)
-        exit()
     
     if len(parts) == 3 and int(parts[-1]) > 0:
         return 'patch'
@@ -304,7 +304,6 @@ def parse_release_type(release):
         return 'minor'
     
     return 'major'
-
 
 def process_all_release_commits(repo_url):
     conn = sql.create_db_connection() # a connection specific for this function which goes into multiprocessing
@@ -341,7 +340,7 @@ def process_all_release_commits(repo_url):
     
     for item in results:
         advisory_id, package_id, package_name, release, prior_release = item['advisory_id'], item['package_id'], item['name'], item['ri.version'], item['prior_release']
-        #print(package_id, release, prior_release)
+        print(package_id, release, prior_release)
         releases = [release, prior_release]
         for release in releases:
             if release == common.manualcheckup:
@@ -378,11 +377,12 @@ def get_release_commits():
     repository_urls = sql.execute(q,(common.norepo,))
     repo_urls = [row['repository_url'] for row in repository_urls]
     pool = Pool(os.cpu_count())
-    pool.map(process_all_release_commits, repo_urls)
+    pool.map(process_all_release_commits, repo_urls)          
 
-               
+def acc_mp(item):
+    #multiprocessing function for analyze_change_complexity
+    conn = sql.create_db_connection()
 
-def analyze_change_complexity():
     def get_commit_head(package_id, version):
         q='''select *
             from release_commit
@@ -394,38 +394,80 @@ def analyze_change_complexity():
         else:
             return None
 
+    l = []
+    for k in item.keys():
+        l.append(item[k])
+    advisory_id, package_id, repo_url, release_id, fixing_release, prior_release = l
+    print(advisory_id, package_id, repo_url, release_id, fixing_release, prior_release)
 
+    repo_path = clone_git_repository(package_id, repo_url)
+    if repo_path == invalid_git_remote:
+        return
 
+    fixing_relese_commit = get_commit_head(package_id, fixing_release)
+    prior_release_commit = get_commit_head(package_id, prior_release)
+
+    if not fixing_relese_commit or not prior_release_commit:
+        return
+    
+    release_type = parse_release_type(fixing_release)
+    try:
+        sql.execute('insert into release_type values(%s,%s)',(release_id, release_type), connection = conn)
+    except sql.pymysql.IntegrityError as error:
+        if error.args[0] == sql.PYMYSQL_DUPLICATE_ERROR:
+            pass
+            #safely continue
+        else:
+            print(error)
+            exit() 
+
+    commits, files = diff.change_complexity(repo_path, prior_release_commit, fixing_relese_commit)
+
+    for k in commits.keys():
+        try:
+            sql.execute('insert into change_commit values(%s,%s,%s,%s,%s,%s)',
+                        (release_id, k, commits[k]['author_name'],commits[k]['author_email'],commits[k]['committer_name'],commits[k]['committer_email'] ),
+                        connection = conn)
+        except sql.pymysql.IntegrityError as error:
+            if error.args[0] == sql.PYMYSQL_DUPLICATE_ERROR:
+                pass
+                #safely continue
+            else:
+                print(error)
+                exit() 
+    
+    for k in files.keys():
+        try:
+            sql.execute('insert into change_file values(%s,%s,%s,%s)',
+                    (release_id,k,files[k]['loc_added'],files[k]['loc_removed']),
+                    connection = conn)
+        except sql.pymysql.IntegrityError as error:
+            if error.args[0] == sql.PYMYSQL_DUPLICATE_ERROR:
+                pass
+                #safely continue
+            else:
+                print(error)
+                exit() 
+    
+    conn.close()
+
+def analyze_change_complexity():
     q = '''select advisory_id, p.id as package_id, repository_url, ri.id as release_id, ri.version as fixing_release, prior_release
             from advisory a
             join package p on a.package_id = p.id
             join fixing_releases fr on a.id = fr.advisory_id
             join release_info ri on p.id = ri.package_id and ri.version = fr.version
-            where ri.prior_release != %s;'''
+            where ri.prior_release != %s
+            and (
+                    ri.id not in (select release_info_id from change_file) or
+                    ri.id not in (select release_info_id from change_commit) or
+                    ri.id not in (select release_info_id from release_type)
+                )
+            and ecosystem != 'Maven' '''
     results = sql.execute(q,(common.manualcheckup,))
-
-    c = 0 
-    for item in results:
-        l = []
-        for k in item.keys():
-            l.append(item[k])
-        advisory_id, package_id, repo_url, release_id, fixing_release, prior_release = l
-        print(advisory_id, package_id, repo_url, release_id, fixing_release, prior_release)
-        repo_path = clone_git_repository(package_id, repo_url)
-        if repo_path == invalid_git_remote:
-            continue
-
-        fixing_relese_commit = get_commit_head(package_id, fixing_release)
-        prior_release_commit = get_commit_head(package_id, prior_release)
-
-        if not fixing_relese_commit or not prior_release_commit:
-            continue
-        
-        release_type = parse_release_type(fixing_release)
-        commits, files, loc, contributors =  diff.change_complexity(repo_path, prior_release_commit, fixing_relese_commit)
-
-        print(advisory_id, release_id, commits, files, loc, contributors, None, release_type)
-        sql.execute('insert into change_complexity values(%s,%s,%s,%s,%s,%s,%s,%s)',(advisory_id, release_id, commits, files, loc, contributors, None, release_type))       
+    pool  = Pool(os.cpu_count())
+    pool.map(acc_mp, results)
+      
 
 def get_changelog():
     q = '''select distinct a.package_id, repository_url
@@ -495,6 +537,6 @@ def get_all_tags(package_id, repo_url):
         
 if __name__=='__main__':
     #process_fix_commit_dates()
-    get_release_commits()
-    #analyze_change_complexity()
+    #get_release_commits()
+    analyze_change_complexity()
     #get_changelog()
