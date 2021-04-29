@@ -40,15 +40,14 @@ def clone_git_repository(package_id, repo_url):
     repo_path = data_path + '/{}/{}'.format(package_id,repo_name) #already exists or to be created here
     if Path(repo_path).is_dir() and is_git_repository(repo_path):
         os.chdir(repo_path)
-        os.system('git pull')
+        os.system('git pull > pull.log > 2>&1')
         return repo_path
     
-
     os.chdir(data_path)
     try:
         os.mkdir(str(package_id))
     except FileExistsError:
-        os.system('rm -rf ./{}'.format(package_id))
+        os.system('rm -rf ./{} > rm.log > 2>&1'.format(package_id))
         os.mkdir(str(package_id))
     os.chdir('./{}'.format(package_id))
     os.system('git clone {}.git > {}_clone.log 2>&1'.format(url, repo_name))
@@ -125,17 +124,18 @@ def get_commit_message_from_local_repo(repo_path,sha):
 
 def get_commit_of_release(tags, package, release):
     '''tags is a gitpython object, while release is a string taken from ecosystem data'''
+    release = release.strip()
     release_tag = None #store return value
     candidate_tags = []
     for tag in tags:
-        if release in tag.name:
+        if tag.name.strip().endswith(release):
             candidate_tags.append(tag)
-    
     if not candidate_tags:
         for tag in tags:
-            if release.replace('.','-') in tag.name or release.replace('.','_') in tag.name:
+            if tag.name.strip().endswith(release.replace('.','-')) or tag.name.strip().endswith(release.replace('.','_')):
                 candidate_tags.append(tag)  
-    elif len(candidate_tags) == 1:
+
+    if len(candidate_tags) == 1:
         release_tag = candidate_tags[0]
     elif len(candidate_tags) > 1:
         new_candidates = []
@@ -148,22 +148,11 @@ def get_commit_of_release(tags, package, release):
         if len(candidate_tags) == 1:
             release_tag = candidate_tags[0]
         elif len(candidate_tags) > 1:
-            new_candidates = []
-            for tag in candidate_tags:
-                if tag.name.endswith(release):
-                    new_candidates.append(tag)
-            candidate_tags = new_candidates
-
-    if not release_tag:   
-        if len(candidate_tags) == 1:
-            release_tag = candidate_tags[0]
-        elif len(candidate_tags) > 1:
             print('too many candidate tags')
             logging.info(candidate_tags)
-            exit()
+            exit()            
 
     if release_tag:
-        print(release_tag.name, release)
         return release_tag.commit
     return None
 
@@ -318,6 +307,8 @@ def parse_release_type(release):
 
 
 def process_all_release_commits(repo_url):
+    conn = sql.create_db_connection() # a connection specific for this function which goes into multiprocessing
+
     def results_per_package(repo_url):
         q='''select *
             from advisory a
@@ -334,15 +325,14 @@ def process_all_release_commits(repo_url):
             or concat(a.package_id, ri.prior_release) not in
             (select concat(package_id, version) from release_commit))
             and p.repository_url = %s'''
-        results = sql.execute(q,(common.norepo, repo_url))
+        results = sql.execute(q,(common.norepo, repo_url), connection  = conn)
         return results
 
     results = results_per_package(repo_url)
     package_id = results[0]['package_id']
-    print(repo_url)
     repo_path = clone_git_repository(package_id, repo_url)
     if repo_path == invalid_git_remote:
-        logging.info(repo_path)
+        #logging.info(repo_path)
         return 
     os.chdir(repo_path)
     repo = Repo(repo_path)
@@ -351,15 +341,14 @@ def process_all_release_commits(repo_url):
     
     for item in results:
         advisory_id, package_id, package_name, release, prior_release = item['advisory_id'], item['package_id'], item['name'], item['ri.version'], item['prior_release']
-        print(package_id, release, prior_release)
-
+        #print(package_id, release, prior_release)
         releases = [release, prior_release]
         for release in releases:
             if release == common.manualcheckup:
                 return 
             head_commit = get_commit_of_release(tags, package_name, release)
             try:
-                sql.execute('insert into release_commit values(%s,%s,%s)',(package_id, release, head_commit))
+                sql.execute('insert into release_commit values(%s,%s,%s)',(package_id, release, head_commit), connection = conn)
             except sql.pymysql.IntegrityError as error:
                 if error.args[0] == sql.PYMYSQL_DUPLICATE_ERROR:
                     pass
@@ -367,6 +356,8 @@ def process_all_release_commits(repo_url):
                 else:
                     print(error)
                     exit() 
+    
+    conn.close()
 
 def get_release_commits():
     q='''select distinct p.repository_url
@@ -382,7 +373,8 @@ def get_release_commits():
         and (concat(a.package_id, ri.version) not in
         (select concat(package_id, version) from release_commit)
         or concat(a.package_id, ri.prior_release) not in
-        (select concat(package_id, version) from release_commit))'''
+        (select concat(package_id, version) from release_commit))
+        '''
     repository_urls = sql.execute(q,(common.norepo,))
     repo_urls = [row['repository_url'] for row in repository_urls]
     pool = Pool(os.cpu_count())
