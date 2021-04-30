@@ -297,6 +297,13 @@ def parse_release_type(release):
 
     parts = release.split('.')
     
+    try:
+        t = int(parts[2])
+        t = int(parts[1])
+        t = int(parts[0])
+    except:
+        return 'unknown' 
+
     if len(parts) == 3 and int(parts[-1]) > 0:
         return 'patch'
     
@@ -464,6 +471,8 @@ def analyze_change_complexity():
                     ri.id not in (select release_info_id from change_commit) or
                     ri.id not in (select release_info_id from release_type)
                 )
+            and concat(a.package_id, ri.version) in (select concat(package_id, version) from release_commit where commit is not null)
+            and concat(a.package_id, prior_release) in (select concat(package_id, version) from release_commit where commit is not null)
             and ecosystem != 'Maven' '''
     results = sql.execute(q,(common.manualcheckup,common.norepo))
     pool  = Pool(os.cpu_count())
