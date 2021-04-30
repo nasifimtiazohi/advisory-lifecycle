@@ -458,13 +458,14 @@ def analyze_change_complexity():
             join fixing_releases fr on a.id = fr.advisory_id
             join release_info ri on p.id = ri.package_id and ri.version = fr.version
             where ri.prior_release != %s
+            and repository_url != %s
             and (
                     ri.id not in (select release_info_id from change_file) or
                     ri.id not in (select release_info_id from change_commit) or
                     ri.id not in (select release_info_id from release_type)
                 )
             and ecosystem != 'Maven' '''
-    results = sql.execute(q,(common.manualcheckup,))
+    results = sql.execute(q,(common.manualcheckup,common.norepo))
     pool  = Pool(os.cpu_count())
     pool.map(acc_mp, results)
       
