@@ -414,7 +414,9 @@ def acc_mp(item):
     fixing_relese_commit = get_commit_head(package_id, fixing_release)
     prior_release_commit = get_commit_head(package_id, prior_release)
 
-    if not fixing_relese_commit or not prior_release_commit:
+    if not fixing_relese_commit or not prior_release_commit or fixing_relese_commit == prior_release_commit:
+        #in some case both the tags refer to same commit, how many?
+        #in those cases, fixes may have been available earlier
         return
     
     release_type = parse_release_type(fixing_release)
@@ -467,16 +469,18 @@ def analyze_change_complexity():
             where ri.prior_release != %s
             and repository_url != %s
             and (
-                    ri.id not in (select release_info_id from change_file) or
-                    ri.id not in (select release_info_id from change_commit) or
+                    ri.id not in (select release_info_id from change_file) and
+                    ri.id not in (select release_info_id from change_commit) and
                     ri.id not in (select release_info_id from release_type)
                 )
             and concat(a.package_id, ri.version) in (select concat(package_id, version) from release_commit where commit is not null)
             and concat(a.package_id, prior_release) in (select concat(package_id, version) from release_commit where commit is not null)
-            and ecosystem != 'Maven' '''
+            order by rand()'''
     results = sql.execute(q,(common.manualcheckup,common.norepo))
+    print(len(results))
     pool  = Pool(os.cpu_count())
     pool.map(acc_mp, results)
+   
       
 
 def get_changelog():

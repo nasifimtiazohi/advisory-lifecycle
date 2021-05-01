@@ -109,5 +109,6 @@ if __name__ == '__main__':
         prior_release = get_prior_release(package, version)
         sql.execute('insert into release_info values(null,%s,%s,%s,%s)',(id, version, publish_date, prior_release))
     
+   
 
     
