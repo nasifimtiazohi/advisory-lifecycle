@@ -2,6 +2,7 @@ import common, sql
 import os, json
 import subprocess, shlex
 from dateutil import parser as dt
+import dateutil
 from bs4 import BeautifulSoup as BS
 import pandas as pd
 import requests
@@ -110,6 +111,7 @@ def parse_mavenrepo_page(url):
                 if version.startswith('v'):
                     version = version[1:]
                 time= line[1] + ' ' + line[2]
+                time = dt.parse(time).astimezone(dateutil.tz.tzutc())
                 
             elif line and line[0].endswith('/'):
                 version = line[0][:-1]
@@ -175,24 +177,43 @@ def get_release_info(package,version):
 
     return publish_date, prior_release, skip
 
-
+def get_release_date(package, version):
+    publish_date = prior_release = None
+    skip = True #temporary logic for now to only work with valid ones
+    url = 'https://repo1.maven.org/maven2/' + package.replace('.','/').replace(':','/')
+    print(url)
+    versions, allValid = parse_mavenrepo_page(url)
+    if versions and version in versions:
+        return versions[version]
 
 if __name__=='__main__':
-    #get repository remote url of packages
-    packages = common.getPackagesToSearchRepository(ecosystem)
-    for item in packages:
-        id, repo = item['id'], get_repository_url(item['name'])
-        sql.execute('update package set repository_url=%s where id = %s',(repo,id))
+    # #get repository remote url of packages
+    # packages = common.getPackagesToSearchRepository(ecosystem)
+    # for item in packages:
+    #     id, repo = item['id'], get_repository_url(item['name'])
+    #     sql.execute('update package set repository_url=%s where id = %s',(repo,id))
     
-    sanitize_repo_url()
+    # sanitize_repo_url()
 
+    # #get release info (publish date and prior release) for each fixing release
+    # packages = common.getPackagesToProcessRelease(ecosystem)
+    # for item in packages:
+    #     package_id, package, version = item['package_id'], item['package'], item['version']
+    #     publish_date, prior_release, skip = get_release_info(package,version)
+    #     print(package_id, version, publish_date, prior_release, skip)
+    #     if not skip:
+    #        sql.execute('insert into release_info values(null,%s,%s,%s,%s)',(package_id, version, publish_date, prior_release))
+    #        pass 
+
+    
     #get release info (publish date and prior release) for each fixing release
-    packages = common.getPackagesToProcessRelease(ecosystem)
+    packages = common.getPackagesToProcessReleaseDate(ecosystem)
     for item in packages:
         package_id, package, version = item['package_id'], item['package'], item['version']
-        publish_date, prior_release, skip = get_release_info(package,version)
-        print(package_id, version, publish_date, prior_release, skip)
-        if not skip:
-           sql.execute('insert into release_info values(null,%s,%s,%s,%s)',(package_id, version, publish_date, prior_release))
-           pass 
+        publish_date = get_release_date(package,version)
+        prior_release = None 
+        if publish_date:
+            print(package_id, version, publish_date, prior_release)
+            sql.execute('insert into release_info values(null,%s,%s,%s,%s)',(package_id, version, publish_date, prior_release))
+s
     

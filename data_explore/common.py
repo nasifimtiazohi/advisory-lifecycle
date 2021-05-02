@@ -93,6 +93,18 @@ def getPackagesToProcessRelease(ecosystem):
         not in (select concat(package_id, version) from release_info);'''
     results =  sql.execute(q,(ecosystem,manualcheckup))
     return results
+
+def getPackagesToProcessReleaseDate(ecosystem):
+    q = '''select distinct p.id as package_id, p.name as package, version, p.repository_url as repo_url
+        from fixing_releases fr
+        join advisory a on fr.advisory_id = a.id
+        join package p on a.package_id = p.id
+        where ecosystem=%s and version != %s
+        and repository_url != 'no repository listed'
+        and concat(package_id, version)
+        not in (select concat(package_id, version) from release_info where publish_date is not null);'''
+    results =  sql.execute(q,(ecosystem,manualcheckup))
+    return results
     
 def parse_sha_from_commit_reference(url):
     ''' returns a list of shas'''
@@ -621,5 +633,6 @@ def get_release_note_info():
 if __name__=='__main__':
     #analyze_change_complexity()
     #get_fix_commits()
-    get_release_note_info()
-    
+    #get_release_note_info()
+    d =  dt.parse('2020-11-13 09:50')
+    sql.execute('update release_info set publish_date=%s where id=%s',(d,7287))
