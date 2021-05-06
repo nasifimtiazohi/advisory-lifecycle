@@ -212,8 +212,7 @@ def process_fix_commit_dates():
     q = '''select *
             from fix_commits fc
             join package p on fc.package_id = p.id
-            where ecosystem = 'Go'
-            and commit_date is null
+            where commit_date is null
             and invalid is null
             and repository_url != %s
             and commit_sha != 'not git';'''
@@ -323,7 +322,6 @@ def process_all_release_commits(repo_url):
             join package p on a.package_id = p.id
             where repository_url is not null
             and repository_url != %s
-            and ecosystem != 'Go'
             and ri.version != 'manual checkup needed'
             and prior_release != 'manual checkup needed' 
             and (concat(a.package_id, ri.version) not in
@@ -335,6 +333,8 @@ def process_all_release_commits(repo_url):
         return results
 
     results = results_per_package(repo_url)
+    if not results:
+        return 
     package_id = results[0]['package_id']
     repo_path = clone_git_repository(package_id, repo_url)
     if repo_path == invalid_git_remote:
@@ -352,6 +352,11 @@ def process_all_release_commits(repo_url):
         for release in releases:
             if release == common.manualcheckup:
                 return 
+
+            Go_exceptions = ['branch does not match','not valid semver formatting']
+            if release in Go_exceptions:
+                return 
+
             head_commit = get_commit_of_release(tags, package_name, release)
             try:
                 sql.execute('insert into release_commit values(%s,%s,%s)',(package_id, release, head_commit), connection = conn)
@@ -373,7 +378,6 @@ def get_release_commits():
         join package p on a.package_id = p.id
         where repository_url is not null
         and repository_url != %s
-        and ecosystem != 'Go'
         and ri.version != 'manual checkup needed'
         and prior_release != 'manual checkup needed' 
         and (concat(a.package_id, ri.version) not in
@@ -382,6 +386,7 @@ def get_release_commits():
         (select concat(package_id, version) from release_commit))
         '''
     repository_urls = sql.execute(q,(common.norepo,))
+    print(len(repository_urls))
     repo_urls = [row['repository_url'] for row in repository_urls]
     pool = Pool(os.cpu_count())
     pool.map(process_all_release_commits, repo_urls)          
@@ -551,6 +556,6 @@ def get_all_tags(package_id, repo_url):
         
 if __name__=='__main__':
     #process_fix_commit_dates()
-    #get_release_commits()
+    get_release_commits()
     analyze_change_complexity()
-    #get_changelog()
+    

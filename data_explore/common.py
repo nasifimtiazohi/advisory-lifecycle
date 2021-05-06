@@ -630,9 +630,43 @@ def get_release_note_info():
         if count %10 == 0:
             time.sleep(3)
 
+def get_extensions():
+    q = '''select *
+        from change_file cf
+        join release_info ri on cf.release_info_id = ri.id
+        join package p on ri.package_id = p.id ;'''
+    results = sql.execute(q)
+
+    d={}
+    c={}
+
+    for item in results:
+        filepath = item['filename']
+        eco = item['ecosystem']
+        filename = filepath.split('/')[-1]
+        if '.' in filename:
+            format = filename.split('.')[-1]
+            format = format.lower()
+
+            if format not in d:
+                d[format]=set()
+            d[format].add(eco)
+
+            if format not in c:
+                c[format]=0
+            c[format]+=1
+        
+    for format in d.keys():
+        if len(d[format]) > 1:
+            eco = 'common'
+        else:
+            eco = list(d[format])[0]
+        
+        sql.execute('insert into file_extensions values(null,%s,%s,%s,null)',(format,eco, c[format]))
+
+
+
 if __name__=='__main__':
-    #analyze_change_complexity()
     #get_fix_commits()
     #get_release_note_info()
-    d =  dt.parse('2020-11-13 09:50')
-    sql.execute('update release_info set publish_date=%s where id=%s',(d,7287))
+    get_extensions()

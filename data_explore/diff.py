@@ -9,8 +9,7 @@ def change_complexity(repo_path, prior_release_commit, cur_release_commit):
     commits = {}
     files = {}
     
-    ''' we will filter out: 1. merge commits from commit count
-        2. bots from author count; [bot] in login'''
+    ''' we will filter out merge commits from commit count ''' 
 
     for commit in RepositoryMining(repo_path, from_commit = prior_release_commit,\
                         to_commit =cur_release_commit, only_no_merge = True).traverse_commits():
