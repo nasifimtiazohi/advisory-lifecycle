@@ -664,9 +664,30 @@ def get_extensions():
         
         sql.execute('insert into file_extensions values(null,%s,%s,%s,null)',(format,eco, c[format]))
 
+def map_extensions():
+    'temp function, need to refactor into the overall design'
+    q = '''select *
+        from change_file cf
+        where format is null ;'''
+    results = sql.execute(q)
+
+    for item in results:
+        filepath = item['filename']
+        filename = filepath.split('/')[-1]
+        if '.' in filename:
+            format = filename.split('.')[-1]
+            format = format.lower()
+            
+            temp = sql.execute('select id from file_extensions where format=%s',(format,))
+            if temp:
+                id = temp[0]['id']
+                sql.execute('update change_file set format=%s where release_info_id=%s and filename=%s',(id, item['release_info_id'], filepath))
+
+
 
 
 if __name__=='__main__':
     #get_fix_commits()
     #get_release_note_info()
-    get_extensions()
+    #get_extensions()
+    map_extensions()

@@ -452,7 +452,7 @@ def acc_mp(item):
     
     for k in files.keys():
         try:
-            sql.execute('insert into change_file values(%s,%s,%s,%s)',
+            sql.execute('insert into change_file values(%s,%s,%s,%s,null)',
                     (release_id,k,files[k]['loc_added'],files[k]['loc_removed']),
                     connection = conn)
         except sql.pymysql.IntegrityError as error:
