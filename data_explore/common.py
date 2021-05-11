@@ -688,6 +688,6 @@ def map_extensions():
 
 if __name__=='__main__':
     #get_fix_commits()
-    #get_release_note_info()
+    get_release_note_info()
     #get_extensions()
-    map_extensions()
+    #map_extensions()

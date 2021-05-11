@@ -388,7 +388,7 @@ def get_release_commits():
     repository_urls = sql.execute(q,(common.norepo,))
     print(len(repository_urls))
     repo_urls = [row['repository_url'] for row in repository_urls]
-    pool = Pool(os.cpu_count())
+    pool = Pool(1)
     pool.map(process_all_release_commits, repo_urls)          
 
 def acc_mp(item):
@@ -472,6 +472,8 @@ def analyze_change_complexity():
             join fixing_releases fr on a.id = fr.advisory_id
             join release_info ri on p.id = ri.package_id and ri.version = fr.version
             where ri.prior_release != %s
+            and ri.prior_release != 'branch does not match'
+            and ri.prior_release != 'not valid semver formatting'
             and repository_url != %s
             and (
                     ri.id not in (select release_info_id from change_file) and
@@ -483,7 +485,7 @@ def analyze_change_complexity():
             order by rand()'''
     results = sql.execute(q,(common.manualcheckup,common.norepo))
     print(len(results))
-    pool  = Pool(os.cpu_count())
+    pool  = Pool(1)
     pool.map(acc_mp, results)
    
       
@@ -499,7 +501,8 @@ def get_changelog():
         and p.ecosystem != 'cocoapods'
         and repository_url != 'no repository listed'
         and a.package_id not in
-        (select package_id from changelog);'''
+        (select package_id from changelog)
+        and new=1 and a.package_id != 2837;'''
     results = sql.execute(q)
     
     for item in results:
@@ -556,6 +559,7 @@ def get_all_tags(package_id, repo_url):
         
 if __name__=='__main__':
     #process_fix_commit_dates()
-    get_release_commits()
-    analyze_change_complexity()
+    # get_release_commits()
+    # analyze_change_complexity()
+    get_changelog()
     
