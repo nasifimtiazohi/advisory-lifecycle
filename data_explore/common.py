@@ -684,10 +684,28 @@ def map_extensions():
                 sql.execute('update change_file set format=%s where release_info_id=%s and filename=%s',(id, item['release_info_id'], filepath))
 
 
+def fix_release_type():
+    q = '''select *
+        from release_type rt
+        join release_info ri on rt.release_info_id = ri.id
+        where type='unknown' '''
+    results = sql.execute(q)
+    for item in results:
+        version = item['version']
+        if version.count('.') == 3:
+            flag = True
+            l = version.split('.')
+            for v in l:
+                if not v.isdigit():
+                    flag = False
+            if flag:
+                sql.execute('update release_type set type = %s where release_info_id =%s',('unknown-patch', item['release_info_id']))
+    
 
 
 if __name__=='__main__':
+    fix_release_type()
     #get_fix_commits()
-    get_release_note_info()
+    #get_release_note_info()
     #get_extensions()
     #map_extensions()

@@ -291,6 +291,7 @@ def process_fix_commit_dates():
     logging.info('FIX COMMIT DATE PROCESSING DONE')
 
 def parse_release_type(release):
+    ''' TODO: parse unknown-patch from common.fix_release_type'''
     if '-' in release or release.count('.') > 2:
         return 'prerelease'
 
@@ -486,9 +487,7 @@ def analyze_change_complexity():
     results = sql.execute(q,(common.manualcheckup,common.norepo))
     print(len(results))
     pool  = Pool(1)
-    pool.map(acc_mp, results)
-   
-      
+    pool.map(acc_mp, results)    
 
 def get_changelog():
     q = '''select distinct a.package_id, repository_url
