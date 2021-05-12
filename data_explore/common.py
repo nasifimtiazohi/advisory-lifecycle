@@ -688,7 +688,7 @@ def fix_release_type():
     q = '''select *
         from release_type rt
         join release_info ri on rt.release_info_id = ri.id
-        where type='unknown' '''
+        where type='patch' '''
     results = sql.execute(q)
     for item in results:
         version = item['version']

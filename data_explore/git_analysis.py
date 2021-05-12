@@ -420,12 +420,16 @@ def acc_mp(item):
     fixing_relese_commit = get_commit_head(package_id, fixing_release)
     prior_release_commit = get_commit_head(package_id, prior_release)
 
-    if not fixing_relese_commit or not prior_release_commit or fixing_relese_commit == prior_release_commit:
-        #in some case both the tags refer to same commit, how many?
-        #in those cases, fixes may have been available earlier
+    if not fixing_relese_commit or not prior_release_commit:
         return
     
     release_type = parse_release_type(fixing_release)
+    
+    if fixing_relese_commit == prior_release_commit:
+        #in some case both the tags refer to same commit, how many?
+        #in those cases, fixes may have been available earlier
+        return 
+
     try:
         sql.execute('insert into release_type values(%s,%s)',(release_id, release_type), connection = conn)
     except sql.pymysql.IntegrityError as error:
@@ -486,7 +490,7 @@ def analyze_change_complexity():
             order by rand()'''
     results = sql.execute(q,(common.manualcheckup,common.norepo))
     print(len(results))
-    pool  = Pool(1)
+    pool  = Pool(os.cpu_count())
     pool.map(acc_mp, results)    
 
 def get_changelog():
@@ -559,6 +563,6 @@ def get_all_tags(package_id, repo_url):
 if __name__=='__main__':
     #process_fix_commit_dates()
     # get_release_commits()
-    # analyze_change_complexity()
-    get_changelog()
+    analyze_change_complexity()
+    # get_changelog()
     
