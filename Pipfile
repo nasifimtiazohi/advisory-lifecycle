@@ -8,6 +8,7 @@ scrapy = "*"
 pymysql = "*"
 numpy = "*"
 pandas = "*"
+version-differ = "*"
 
 [dev-packages]
 

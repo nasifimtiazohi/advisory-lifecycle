@@ -162,7 +162,7 @@ def get_url(package):
         return url
     
     s1, s2 = package.split(':')
-    return 'https://repo1.maven.org/maven2/' + s1.replace('.','/') + '/' + s2
+    url = 'https://repo1.maven.org/maven2/' + s1.replace('.','/') + '/' + s2
     if requests.get(url).status_code == 200:
         return url
     else: 
