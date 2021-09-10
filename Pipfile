@@ -9,6 +9,8 @@ pymysql = "*"
 numpy = "*"
 pandas = "*"
 version-differ = "*"
+requests = "*"
+pygit2 = "*"
 
 [dev-packages]
 

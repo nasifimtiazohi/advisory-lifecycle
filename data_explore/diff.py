@@ -1,4 +1,4 @@
-from pydriller import RepositoryMining
+from pydriller import Repository
 import logging
 logging.basicConfig()
 logger = logging.getLogger('BBProposalGenerator')
