@@ -134,3 +134,6 @@ data_explore/temp/
 
 #mac files
 .DS_Store
+
+#data files
+*.csv
