@@ -11,8 +11,11 @@ pandas = "*"
 version-differ = "*"
 requests = "*"
 pygit2 = "*"
+unidiff = "*"
+semver = "*"
 
 [dev-packages]
+ipykernel = "*"
 
 [requires]
 python_version = "3.9"

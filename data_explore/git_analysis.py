@@ -7,7 +7,8 @@ import logging, coloredlogs
 from git import Repo
 coloredlogs.install()
 from pathlib import Path
-root_path = '/Volumes/nasifhdd'
+# TODO: move to temp dir
+root_path = '/Users/nasifimtiaz/repos'
 import common
 import dateutil
 import difflib

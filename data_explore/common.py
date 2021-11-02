@@ -16,7 +16,6 @@ short_commits = 0
 import collections
 import githubapi
 import semantic_version
-import githubapi
 import git_analysis as ga
 import time
 
