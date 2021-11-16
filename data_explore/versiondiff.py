@@ -59,6 +59,7 @@ def pvd_mp(item):
 
     try:
         files = get_version_diff_stats(eco, package, repo_url, old_version, new_version)
+        #TODO: need to filter out files with zero loc change (file renamed) as logic got updated in the latest version-differ
 
         if files is None:
             q = 'insert into version_diff_with_no_head_commit values (%s)'
