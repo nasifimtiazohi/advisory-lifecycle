@@ -3,7 +3,7 @@ import common, sql
 from multiprocessing import Pool
 from bs4 import BeautifulSoup as BS
 import os, time
-libraryio_token = os.environ['libraryio_token']
+#libraryio_token = os.environ['libraryio_token']
 
 temp = 'select * from file_extensions'
 temp = sql.execute(temp)
@@ -30,7 +30,7 @@ def get_release_data():
             and ri.id not in (select distinct release_id from version_diff)
             and ri.id not in (select distinct release_id from version_diff_with_no_head_commit)
             and ri.id not in (select distinct release_id from version_diff_with_no_package_file)
-            and p.ecosystem = 'NuGet'
+            and p.ecosystem = 'pip'
             order by rand()
             '''
     results = sql.execute(q,(common.manualcheckup,common.norepo))
@@ -58,9 +58,9 @@ def pvd_mp(item):
     
 
     try:
-        files = get_version_diff_stats(eco, package, repo_url, old_version, new_version)
+        diff_stats = get_version_diff_stats(eco, package, old_version, new_version)
+        files = diff_stats['diff']
         #TODO: need to filter out files with zero loc change (file renamed) as logic got updated in the latest version-differ
-
         if files is None:
             q = 'insert into version_diff_with_no_head_commit values (%s)'
             args = [release_id]
@@ -85,9 +85,9 @@ def pvd_mp(item):
 def process_version_diff():
     results = get_release_data()
     print(len(results))
-
     pool  = Pool(os.cpu_count())
     pool.map(pvd_mp, results) 
+
 
 
     
@@ -107,7 +107,7 @@ def file_is_a_source_file(file):
 rq3 = {}
 
 def process_rq3():
-    q = '''select distinct release_id from version_diff'''
+    q = '''select distinct release_id from version_diff where release_id not in (select release_id from rq3)'''
     rids = sql.execute(q)
     for rid in rids:
         rid = rid['release_id']
@@ -244,6 +244,6 @@ def process_package_usage():
 
 
 if __name__ == '__main__':
-    process_package_usage()
-
+    #process_version_diff()
+    process_rq3()
     
